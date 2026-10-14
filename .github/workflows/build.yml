@@ -1,0 +1,136 @@
+name: Build MineOS ISO
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version de MineOS (ex: 1.0.0)'
+        required: false
+        default: '1.0.0'
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: version
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name || '1.0.0' }}"
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building MineOS $VERSION"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            live-build \
+            debootstrap \
+            squashfs-tools \
+            xorriso \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            mtools \
+            isolinux \
+            syslinux-common \
+            rsync \
+            wget \
+            curl \
+            ca-certificates
+
+      - name: Make scripts executable
+        run: |
+          chmod +x scripts/*.sh
+
+      - name: Build MineOS ISO
+        run: |
+          sudo ./scripts/build.sh "${{ steps.version.outputs.VERSION }}"
+
+      - name: Rename ISO
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          sudo mv build/mineos.iso "build/MineOS-${VERSION}-x86_64.iso" || true
+          ls -lh build/
+
+      - name: Get ISO info
+        id: iso_info
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          ISO_FILE="build/MineOS-${VERSION}-x86_64.iso"
+          if [ -f "$ISO_FILE" ]; then
+            SIZE=$(du -sh "$ISO_FILE" | cut -f1)
+            MD5=$(md5sum "$ISO_FILE" | cut -d' ' -f1)
+            SHA256=$(sha256sum "$ISO_FILE" | cut -d' ' -f1)
+            echo "ISO_SIZE=$SIZE" >> $GITHUB_OUTPUT
+            echo "ISO_MD5=$MD5" >> $GITHUB_OUTPUT
+            echo "ISO_SHA256=$SHA256" >> $GITHUB_OUTPUT
+            echo "ISO_FILE=$ISO_FILE" >> $GITHUB_OUTPUT
+            echo "✅ ISO built: $SIZE"
+          else
+            echo "❌ ISO not found!"
+            exit 1
+          fi
+
+      - name: Create checksums file
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          ISO_FILE="build/MineOS-${VERSION}-x86_64.iso"
+          sha256sum "$ISO_FILE" > "build/MineOS-${VERSION}-SHA256SUMS"
+          md5sum "$ISO_FILE" > "build/MineOS-${VERSION}-MD5SUMS"
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MineOS-${{ steps.version.outputs.VERSION }}-ISO
+          path: |
+            build/MineOS-*.iso
+            build/MineOS-*SUMS
+          retention-days: 30
+
+      - name: Create Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "MineOS ${{ steps.version.outputs.VERSION }}"
+          body: |
+            ## ⛏ MineOS ${{ steps.version.outputs.VERSION }}
+
+            ### 📦 Contenu
+            - Base : Debian 12 Bookworm Live
+            - Navigateur : Google Chrome
+            - Compatibilité .exe : Wine 8.x
+            - Bureau : Openbox (thème MineOS Dark)
+
+            ### 💾 Informations
+            - Taille : ${{ steps.iso_info.outputs.ISO_SIZE }}
+            - SHA256 : `${{ steps.iso_info.outputs.ISO_SHA256 }}`
+            - MD5 : `${{ steps.iso_info.outputs.ISO_MD5 }}`
+
+            ### 🚀 Installation
+            ```bash
+            sudo dd if=MineOS-${{ steps.version.outputs.VERSION }}-x86_64.iso of=/dev/sdX bs=4M status=progress
+            ```
+          files: |
+            build/MineOS-*.iso
+            build/MineOS-*SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build summary
+        run: |
+          echo "## ⛏ MineOS Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Info | Valeur |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | ${{ steps.version.outputs.VERSION }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Taille | ${{ steps.iso_info.outputs.ISO_SIZE }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SHA256 | \`${{ steps.iso_info.outputs.ISO_SHA256 }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| MD5 | \`${{ steps.iso_info.outputs.ISO_MD5 }}\` |" >> $GITHUB_STEP_SUMMARY
