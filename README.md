@@ -1,74 +1,65 @@
-# ⛏ MineOS — Linux-based OS ISO
+# ⛏ MineOS Gaming Edition
 
-> OS basé sur **Debian Live** avec Chrome, Wine (.exe), bureau personnalisé Minecraft-themed.
+OS basé sur **Debian 12 Live** — optimisé gaming pour i3-7020U + 16 GB RAM.
 
-## 🔧 Ce que contient cet ISO
+## 🎮 Optimisations gaming incluses
 
 | Composant | Détail |
 |-----------|--------|
-| Base | Debian 12 (Bookworm) Live |
-| Bureau | Openbox + LightDM |
-| Navigateur | Google Chrome (stable) |
-| Compatibilité .exe | Wine 8.x + Winetricks |
-| Terminal | Tilix |
-| Gestionnaire de fichiers | Thunar |
-| Thème | MineOS Green Dark (GTK) |
-| Bootloader | ISOLINUX + GRUB EFI |
-| Architecture | x86_64 |
+| **Kernel** | Liquorix (low-latency, scheduler gaming) |
+| **Wine** | + DXVK (DirectX 9/10/11 → Vulkan) + WINEFSYNC |
+| **GameMode** | Boost CPU governor → performance automatique en jeu |
+| **MangoHud** | Overlay FPS/CPU/GPU/RAM (Shift+F12) |
+| **Steam** | Proton intégré (compatibilité jeux Windows) |
+| **Lutris** | GOG, Epic, Battle.net, jeux rétro |
+| **Intel HD 620** | GuC/HuC activé, FBC, PSR |
+| **Swappiness** | 10 (garde max en RAM) |
+| **Audio** | PulseAudio low-latency (5ms fragments) |
+| **GRUB** | `mitigations=off` (+10-15% CPU), `nohz_full` |
 
-## 🚀 Compiler l'ISO via GitHub Actions
+## 🚀 Compiler via GitHub Actions
 
-1. **Fork ce repo** sur ton compte GitHub
-2. Va dans **Actions** → active les workflows
-3. Clique sur **Build MineOS ISO** → **Run workflow**
-4. Attend ~20-30 min
-5. Télécharge l'ISO dans les **Artifacts** de la run
+1. **Fork ce repo**
+2. **Actions** → **Build MineOS Gaming ISO** → **Run workflow**
+3. Attendre ~30 min
+4. Télécharger dans **Artifacts**
 
-## 💿 Flasher l'ISO
-
-```bash
-# Linux / macOS
-sudo dd if=mineos.iso of=/dev/sdX bs=4M status=progress && sync
-
-# Windows : utiliser Rufus ou balenaEtcher
-```
-
-## 📁 Structure du projet
-
-```
-mineos-iso/
-├── .github/workflows/build.yml   # CI/CD GitHub Actions
-├── scripts/
-│   ├── build.sh                  # Script de build principal
-│   ├── customize.sh              # Customisation du rootfs
-│   └── install-packages.sh       # Installation des paquets
-├── configs/
-│   ├── lb-config                 # Config live-build
-│   ├── openbox/                  # Config bureau Openbox
-│   ├── lightdm/                  # Config écran de connexion
-│   └── gtk-theme/                # Thème visuel MineOS
-├── rootfs/
-│   ├── etc/                      # Config système
-│   ├── usr/local/bin/            # Scripts système MineOS
-│   └── home/user/                # Home par défaut
-└── README.md
-```
-
-## 🖥 Applications incluses
-
-- **Google Chrome** — Navigateur web complet
-- **Wine** — Lancer des `.exe` Windows
-- **Winetricks** — Helper Wine (DirectX, .NET, VCRedist...)
-- **Thunar** — Explorateur de fichiers
-- **Tilix** — Terminal
-- **Mousepad** — Éditeur de texte (Bloc-notes)
-- **Geany** — IDE léger
-- **VLC** — Lecteur multimédia
-- **GIMP** — Édition d'images
-- **MineOS Panel** — Barre des tâches custom
-
-## ⚙️ Pré-requis pour build local
+## 💿 Flasher
 
 ```bash
-sudo apt install live-build debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin
+# Linux
+sudo dd if=MineOS-Gaming-1.0.0-x86_64.iso of=/dev/sdX bs=4M status=progress && sync
+
+# Windows : Rufus ou balenaEtcher
 ```
+
+## ⌨️ Raccourcis clavier
+
+| Touche | Action |
+|--------|--------|
+| `Super+Entrée` | Terminal |
+| `Super+B` | Chrome |
+| `Super+G` | Steam |
+| `Super+L` | Lutris |
+| `Super+E` | Fichiers |
+| `Shift+F12` | Toggle MangoHud (overlay FPS) |
+| `Shift+F1` | Toggle limite FPS |
+| `Clic droit bureau` | Menu |
+
+## 💻 Commandes terminal
+
+```bash
+exe fichier.exe          # Lance avec Wine + GameMode
+exe-dxvk fichier.exe     # Wine + DXVK + MangoHud overlay
+steam                    # Steam (avec GameMode)
+gaming-info              # Infos GPU OpenGL
+```
+
+## 📊 RAM estimée sur i3-7020U + 16 GB
+
+| Situation | RAM utilisée | RAM libre |
+|-----------|-------------|-----------|
+| Idle bureau | ~380 MB | ~15,6 GB |
+| + Chrome (5 onglets) | ~900 MB | ~15,1 GB |
+| + Steam ouvert | ~1,2 GB | ~14,8 GB |
+| + Jeu Wine moyen | ~2,5 GB | ~13,5 GB |
