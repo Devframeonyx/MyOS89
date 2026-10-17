@@ -86,45 +86,32 @@ jobs:
 
           original = text
 
-          # --- Patch 1 ---
-          # Conditions du type :
-          #   if [ -L chroot/boot/initrd.img ]
-          #   if [ -e chroot/boot/initrd.img ] || [ -L chroot/boot/initrd.img ]
-          # → remplacer par [ -e ... ] seul (dereference : vrai seulement si cible existe)
+          # --- Patch principal (live-build 3.0~a57, Ubuntu 22.04) ---
+          # Ligne exacte dans lb_chroot_hacks (confirmée par debug) :
+          #   find chroot/boot -name 'initrd*' -print0 | xargs -r -0 chmod go+r
+          #
+          # find liste les symlinks cassés (initrd.img, initrd.img.old) car find
+          # ne dereference pas par défaut. xargs chmod go+r plante dessus → exit 123.
+          #
+          # Fix : -not -xtype l exclut les symlinks dont la cible n'existe pas.
+          # (-xtype l = "encore un symlink après dereference" = symlink cassé)
+          OLD = "find chroot/boot -name 'initrd*' -print0 | xargs -r -0 chmod go+r"
+          NEW = "find chroot/boot -name 'initrd*' -not -xtype l -print0 | xargs -r -0 chmod go+r  # patched"
+          text = text.replace(OLD, NEW)
+
+          # --- Patches de sécurité (autres versions de live-build) ---
+          # Conditions [ -L ... ] → [ -e ... ] (symlink valide seulement)
           text = re.sub(
-              r'\[ -[eL] (chroot/boot/(?:initrd\.img[^ \]]*|vmlinuz[^ \]]*)) \]'
+              r'\[ -[eL] (chroot/boot/(?:initrd[^ \]]*|vmlinuz[^ \]]*)) \]'
               r'(?:\s*\|\|\s*\[ -[eL] \1 \])?',
               r'[ -e \1 ]',
               text
           )
-
-          # --- Patch 2 ---
-          # chmod directs sur le host (ex: chmod 600 chroot/boot/initrd.img)
-          # → ajouter || true pour rendre non-fatal
+          # chmod direct sur chroot/boot/initrd* → non-fatal
           text = re.sub(
-              r'(chmod\s+\S+\s+chroot/boot/(?:initrd\.img|vmlinuz)[^\n]*)',
+              r'(chmod\s+\S+\s+chroot/boot/(?:initrd[^ \n]*|vmlinuz[^ \n]*))',
               r'\1 2>/dev/null || true  # patched',
               text
-          )
-
-          # --- Patch 3 ---
-          # Chroot chroot chmod ... /boot/initrd.img (chmod à l'intérieur du chroot)
-          # → entourer d'une vérification d'existence sur le host
-          def guard_chroot_chmod(m):
-              indent = m.group(1)
-              cmd = m.group(2)
-              # Extraire le chemin /boot/xxx pour construire le test host-side
-              file_match = re.search(r'/boot/((?:initrd\.img|vmlinuz)\S*)', cmd)
-              if not file_match:
-                  return m.group(0)
-              host_path = 'chroot/boot/' + file_match.group(1)
-              return (f'{indent}[ -e {host_path} ] && \\\n'
-                      f'{indent}{cmd}  # patched\n')
-
-          text = re.sub(
-              r'^(\s*)(Chroot\s+chroot\s+chmod\s+\S+\s+/boot/(?:initrd\.img|vmlinuz)[^\n]*)\n',
-              guard_chroot_chmod,
-              text, flags=re.MULTILINE
           )
 
           if text == original:
