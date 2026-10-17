@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-#  MineOS Gaming Edition — Build complet
+#  MineOS Gaming Edition — Build Ubuntu 22.04 (Jammy)
 #  XFCE + Opera GX + Store apps + Personnalisation
 # ============================================================
 set -euo pipefail
@@ -10,7 +10,7 @@ BUILD_DIR="/opt/mineos-build"
 OUT_DIR="/opt/mineos-output"
 
 echo "============================================"
-echo "  MineOS Gaming v${VERSION}"
+echo "  MineOS Gaming v${VERSION} [Ubuntu Jammy]"
 echo "============================================"
 
 rm -rf "$BUILD_DIR" "$OUT_DIR"
@@ -18,87 +18,72 @@ mkdir -p "$BUILD_DIR" "$OUT_DIR"
 cd "$BUILD_DIR"
 
 # ─────────────────────────────────────────────
-# ÉTAPE 0 : Forcer mirrors Debian
+# ÉTAPE 0 : Config live-build pour Ubuntu
 # ─────────────────────────────────────────────
-echo "[0/9] Override mirror Debian..."
+echo "[0/9] Configuration mirrors Ubuntu..."
 mkdir -p /etc/live
 cat > /etc/live/build.conf << 'EOF'
-LB_MIRROR_BOOTSTRAP="http://deb.debian.org/debian"
-LB_MIRROR_BINARY="http://deb.debian.org/debian"
-LB_MIRROR_BINARY_SECURITY="http://security.debian.org/debian-security"
-LB_MIRROR_CHROOT="http://deb.debian.org/debian"
-LB_MIRROR_CHROOT_SECURITY="http://security.debian.org/debian-security"
+LB_MIRROR_BOOTSTRAP="http://archive.ubuntu.com/ubuntu"
+LB_MIRROR_BINARY="http://archive.ubuntu.com/ubuntu"
+LB_MIRROR_BINARY_SECURITY="http://security.ubuntu.com/ubuntu"
+LB_MIRROR_CHROOT="http://archive.ubuntu.com/ubuntu"
+LB_MIRROR_CHROOT_SECURITY="http://security.ubuntu.com/ubuntu"
+LB_PARENT_DISTRIBUTION="jammy"
+LB_PARENT_MIRROR_BOOTSTRAP="http://archive.ubuntu.com/ubuntu"
+LB_PARENT_MIRROR_CHROOT="http://archive.ubuntu.com/ubuntu"
+LB_PARENT_MIRROR_CHROOT_SECURITY="http://security.ubuntu.com/ubuntu"
+LB_PARENT_MIRROR_BINARY="http://archive.ubuntu.com/ubuntu"
+LB_PARENT_MIRROR_BINARY_SECURITY="http://security.ubuntu.com/ubuntu"
 EOF
+
+export LB_PARENT_DISTRIBUTION=jammy
+export LB_PARENT_MIRROR_BOOTSTRAP="http://archive.ubuntu.com/ubuntu"
+export LB_PARENT_MIRROR_CHROOT="http://archive.ubuntu.com/ubuntu"
+export LB_PARENT_MIRROR_CHROOT_SECURITY="http://security.ubuntu.com/ubuntu"
+export LB_PARENT_MIRROR_BINARY="http://archive.ubuntu.com/ubuntu"
+export LB_PARENT_MIRROR_BINARY_SECURITY="http://security.ubuntu.com/ubuntu"
 
 # ─────────────────────────────────────────────
 # ÉTAPE 1 : lb config
 # ─────────────────────────────────────────────
-echo "[1/9] lb config..."
+echo "[1/9] lb config (Ubuntu Jammy)..."
 lb config \
   --architectures amd64 \
-  --distribution bookworm \
+  --distribution jammy \
   --debian-installer none \
   --binary-images iso-hybrid \
   --memtest none \
   --apt-recommends false \
-  --archive-areas "main contrib non-free non-free-firmware" \
-  --mirror-bootstrap "http://deb.debian.org/debian" \
-  --mirror-chroot "http://deb.debian.org/debian" \
-  --mirror-chroot-security "http://security.debian.org/debian-security" \
-  --mirror-binary "http://deb.debian.org/debian" \
-  --mirror-binary-security "http://security.debian.org/debian-security" \
+  --archive-areas "main restricted universe multiverse" \
+  --mirror-bootstrap "http://archive.ubuntu.com/ubuntu" \
+  --mirror-chroot "http://archive.ubuntu.com/ubuntu" \
+  --mirror-chroot-security "http://security.ubuntu.com/ubuntu" \
+  --mirror-binary "http://archive.ubuntu.com/ubuntu" \
+  --mirror-binary-security "http://security.ubuntu.com/ubuntu" \
   --iso-application "MineOS Gaming" \
   --iso-publisher "MineOS Project" \
   --iso-volume "MineOS-${VERSION}" \
   --bootappend-live "boot=live components quiet splash hostname=mineos username=user"
 
-# ─────────────────────────────────────────────
-# FIX : ubuntu-keyring (injecté automatiquement par lb sur runner Ubuntu)
-# ─────────────────────────────────────────────
-echo "[1b/9] Fix ubuntu-keyring + mirrors parent..."
+echo "[1b/9] Sources Ubuntu + keyring..."
 
-# Forcer les variables parent pour que lb ne prenne pas Ubuntu comme base
-cat >> /etc/live/build.conf << 'EOF'
-LB_PARENT_DISTRIBUTION="bookworm"
-LB_PARENT_MIRROR_BOOTSTRAP="http://deb.debian.org/debian"
-LB_PARENT_MIRROR_CHROOT="http://deb.debian.org/debian"
-LB_PARENT_MIRROR_CHROOT_SECURITY="http://security.debian.org/debian-security"
-LB_PARENT_MIRROR_BINARY="http://deb.debian.org/debian"
-LB_PARENT_MIRROR_BINARY_SECURITY="http://security.debian.org/debian-security"
+# Sources Ubuntu (main restricted universe multiverse + security + updates)
+mkdir -p config/archives
+cat > config/archives/ubuntu.list.chroot << 'EOF'
+deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
+deb http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu jammy-backports main restricted universe multiverse
 EOF
 
-export LB_PARENT_DISTRIBUTION=bookworm
-export LB_PARENT_MIRROR_BOOTSTRAP="http://deb.debian.org/debian"
-export LB_PARENT_MIRROR_CHROOT="http://deb.debian.org/debian"
-export LB_PARENT_MIRROR_CHROOT_SECURITY="http://security.debian.org/debian-security"
-export LB_PARENT_MIRROR_BINARY="http://deb.debian.org/debian"
-export LB_PARENT_MIRROR_BINARY_SECURITY="http://security.debian.org/debian-security"
-
-# Bloquer ubuntu-keyring via apt preferences dans le chroot
-mkdir -p config/archives
-cat > config/archives/block-ubuntu.pref.chroot << 'EOF'
-Package: ubuntu-keyring ubuntu-minimal ubuntu-standard ubuntu-base
-Pin: release o=Ubuntu
-Pin-Priority: -1
-
+# Préférences : s'assurer qu'on utilise bien Ubuntu
+cat > config/archives/ubuntu.pref.chroot << 'EOF'
 Package: *
-Pin: release o=Debian
+Pin: release o=Ubuntu
 Pin-Priority: 990
 EOF
 
-# Sources explicitement Debian dans le chroot
-cat > config/archives/debian.list.chroot << 'EOF'
-deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
-deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
-EOF
-
-# Patcher le auto/config généré si besoin
-if [ -f auto/config ]; then
-  sed -i 's/ubuntu-keyring/debian-archive-keyring/g' auto/config 2>/dev/null || true
-fi
-
-echo "Fix ubuntu-keyring OK"
+echo "Sources Ubuntu OK"
 
 # ─────────────────────────────────────────────
 # ÉTAPE 2 : Hostname
@@ -134,6 +119,7 @@ software-properties-common
 locales
 tzdata
 rsync
+ubuntu-keyring
 EOF
 
 cat > config/package-lists/01-xfce.list.chroot << 'EOF'
@@ -198,6 +184,8 @@ nitrogen
 picom
 rofi
 dunst
+python3-pil
+imagemagick
 EOF
 
 cat > config/package-lists/03-wine.list.chroot << 'EOF'
@@ -234,8 +222,8 @@ mkdir -p config/hooks/live
 cat > config/hooks/live/0050-locale.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
-sed -i 's/# fr_FR.UTF-8/fr_FR.UTF-8/' /etc/locale.gen
-locale-gen
+sed -i 's/# fr_FR.UTF-8/fr_FR.UTF-8/' /etc/locale.gen 2>/dev/null || true
+locale-gen fr_FR.UTF-8
 update-locale LANG=fr_FR.UTF-8 LC_ALL=fr_FR.UTF-8
 HOOKEOF
 
@@ -244,24 +232,15 @@ cat > config/hooks/live/0100-opera.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
 echo ">>> Opera GX..."
-# Clé GPG Opera
 wget -qO /tmp/opera.gpg "https://deb.opera.com/archive.key"
 gpg --dearmor -o /usr/share/keyrings/opera.gpg /tmp/opera.gpg
 rm -f /tmp/opera.gpg
 
-# Repo Opera
 echo "deb [signed-by=/usr/share/keyrings/opera.gpg] https://deb.opera.com/opera-stable/ stable non-free" \
   > /etc/apt/sources.list.d/opera.list
 
 apt-get update -qq
-apt-get install -y opera-stable 2>/dev/null || {
-  echo "Opera stable indispo, tentative Opera GX..."
-  # Opera GX n'a pas de paquet Linux officiel séparé, on installe Opera stable
-  # qui est la version desktop complète avec les mêmes features
-  apt-get install -y opera-stable || echo "Opera skip"
-}
-
-# Créer alias opera-gx → opera
+apt-get install -y opera-stable 2>/dev/null || echo "Opera skip"
 ln -sf /usr/bin/opera /usr/local/bin/opera-gx 2>/dev/null || true
 echo ">>> Opera OK"
 HOOKEOF
@@ -276,7 +255,6 @@ apt-get update -qq
 apt-get install -y wine32 libwine:i386 fonts-wine \
   libvulkan1:i386 libgl1-mesa-dri:i386 2>/dev/null || true
 
-# DXVK
 DXVK_VER="2.3.1"
 wget -qO /tmp/dxvk.tar.gz \
   "https://github.com/doitsujin/dxvk/releases/download/v${DXVK_VER}/dxvk-${DXVK_VER}.tar.gz" \
@@ -296,17 +274,15 @@ echo "DXVK active"
 EOF
 chmod +x /usr/local/bin/wine-dxvk-setup
 
-# Bottles via Flatpak (installé au premier démarrage)
 cat > /usr/local/bin/install-bottles << 'EOF'
 #!/bin/bash
 echo ">>> Installation de Bottles..."
 flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 flatpak install -y flathub com.usebottles.bottles
-echo ">>> Bottles installé ! Lance-le depuis le menu."
+echo ">>> Bottles installé !"
 EOF
 chmod +x /usr/local/bin/install-bottles
 
-# Association .exe → Wine
 cat > /usr/share/applications/wine-exe.desktop << 'EOF'
 [Desktop Entry]
 Name=Wine EXE Launcher
@@ -318,7 +294,6 @@ NoDisplay=true
 EOF
 update-desktop-database 2>/dev/null || true
 
-# Mettre à jour mime pour .exe
 mkdir -p /usr/share/mime/packages
 cat > /usr/share/mime/packages/wine.xml << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -338,7 +313,7 @@ HOOKEOF
 cat > config/hooks/live/0250-kernel.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
-echo ">>> Kernel Liquorix..."
+echo ">>> Kernel Liquorix (Ubuntu)..."
 wget -qO /tmp/liq.gpg "https://liquorix.net/liquorix-keyring.gpg" \
   || { echo "Liquorix GPG echec"; exit 0; }
 install -D -m 644 /tmp/liq.gpg /usr/share/keyrings/liquorix-keyring.gpg
@@ -347,7 +322,7 @@ echo "deb [signed-by=/usr/share/keyrings/liquorix-keyring.gpg] https://liquorix.
   > /etc/apt/sources.list.d/liquorix.list
 apt-get update -qq
 apt-get install -y linux-image-liquorix-amd64 linux-headers-liquorix-amd64 \
-  || echo "Liquorix indispo, kernel Debian conserve"
+  || echo "Liquorix indispo, kernel Ubuntu conserve"
 HOOKEOF
 
 # ── Steam ───────────────────────────────────────────────────
@@ -410,15 +385,17 @@ HOOKEOF
 cat > config/hooks/live/0500-gpu.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
-echo ">>> Drivers GPU..."
+echo ">>> Drivers GPU (Ubuntu)..."
 GPU_INFO=$(lspci 2>/dev/null | grep -iE "VGA|3D|Display" || true)
 HAS_NVIDIA=$(echo "$GPU_INFO" | grep -ic "nvidia" || true)
 HAS_AMD=$(echo "$GPU_INFO"   | grep -icE "amd|radeon|ati" || true)
 echo "GPU: $GPU_INFO"
 
 if [ "$HAS_NVIDIA" -gt 0 ]; then
-  apt-get update -qq
-  apt-get install -y nvidia-driver nvidia-settings libvulkan1 vulkan-tools 2>/dev/null || true
+  # Ubuntu : PPA ubuntu-drivers
+  apt-get install -y ubuntu-drivers-common 2>/dev/null || true
+  ubuntu-drivers install 2>/dev/null || \
+    apt-get install -y nvidia-driver-535 nvidia-settings libvulkan1 vulkan-tools 2>/dev/null || true
   cat > /etc/modprobe.d/blacklist-nouveau.conf << 'EOF'
 blacklist nouveau
 options nouveau modeset=0
@@ -440,7 +417,8 @@ EOF
 
 elif [ "$HAS_AMD" -gt 0 ]; then
   apt-get update -qq
-  apt-get install -y firmware-amd-graphics libgl1-mesa-dri \
+  # Ubuntu Jammy : firmware-amd-graphics n'existe pas → linux-firmware
+  apt-get install -y linux-firmware libgl1-mesa-dri \
     mesa-vulkan-drivers mesa-va-drivers mesa-vdpau-drivers \
     libvulkan1 vulkan-tools 2>/dev/null || true
   cat > /etc/modprobe.d/amdgpu.conf << 'EOF'
@@ -459,7 +437,8 @@ EOF
 
 else
   apt-get update -qq
-  apt-get install -y firmware-misc-nonfree intel-media-va-driver \
+  # Ubuntu Jammy : intel-media-va-driver est dans non-free → intel-media-va-driver-non-free
+  apt-get install -y linux-firmware intel-media-va-driver \
     libva-drm2 libva-x11-2 libgl1-mesa-dri \
     mesa-vulkan-drivers libvulkan1 vulkan-tools 2>/dev/null || true
   cat > /etc/modprobe.d/i915-gaming.conf << 'EOF'
@@ -533,7 +512,6 @@ cat > config/hooks/live/0560-flatpak.hook.chroot << 'HOOKEOF'
 set -e
 echo ">>> Flatpak + Flathub..."
 apt-get install -y flatpak 2>/dev/null || true
-# Ajouter Flathub au démarrage (nécessite réseau)
 cat > /usr/local/bin/mineos-flatpak-setup << 'EOF'
 #!/bin/bash
 flatpak remote-add --if-not-exists flathub \
@@ -541,7 +519,6 @@ flatpak remote-add --if-not-exists flathub \
 EOF
 chmod +x /usr/local/bin/mineos-flatpak-setup
 
-# Lancer au démarrage de session
 cat > /etc/xdg/autostart/mineos-flatpak.desktop << 'EOF'
 [Desktop Entry]
 Name=MineOS Flatpak Setup
@@ -552,7 +529,7 @@ EOF
 echo ">>> Flatpak OK"
 HOOKEOF
 
-# ── MineOS Store (app Linux + Windows) ─────────────────────
+# ── MineOS Store ─────────────────────────────────────────
 cat > config/hooks/live/0570-store.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
@@ -560,12 +537,8 @@ echo ">>> MineOS Store..."
 
 mkdir -p /usr/local/bin /usr/share/applications /usr/share/mineos
 
-# ── Script principal du store ──
 cat > /usr/local/bin/mineos-store << 'STOREEOF'
 #!/bin/bash
-# MineOS Store — Installeur apps Linux + Windows
-# Utilise zenity pour l'interface graphique
-
 APPS_LINUX=(
   "Discord|flatpak install -y flathub com.discordapp.Discord|com.discordapp.Discord"
   "Spotify|flatpak install -y flathub com.spotify.Client|com.spotify.Client"
@@ -594,7 +567,6 @@ show_menu() {
     "🪟 Applications Windows (.exe via Wine)" \
     "🎮 Jeux (Steam / Lutris)" \
     --width=400 --height=280 2>/dev/null)
-
   case "$CHOICE" in
     "🐧 Applications Linux") show_linux ;;
     "🪟 Applications Windows (.exe via Wine)") show_windows ;;
@@ -609,37 +581,20 @@ show_linux() {
     NAME=$(echo "$app" | cut -d'|' -f1)
     ITEMS="$ITEMS FALSE $NAME"
   done
-
-  SELECTED=$(zenity --list \
-    --checklist \
-    --title="🐧 Apps Linux" \
-    --text="Sélectionnez les apps à installer :" \
-    --column="✓" --column="Application" \
-    $ITEMS \
-    --width=500 --height=500 \
-    --separator="|" 2>/dev/null)
-
+  SELECTED=$(zenity --list --checklist \
+    --title="🐧 Apps Linux" --text="Sélectionnez les apps à installer :" \
+    --column="✓" --column="Application" $ITEMS \
+    --width=500 --height=500 --separator="|" 2>/dev/null)
   [ -z "$SELECTED" ] && show_menu && return
-
-  # Ajouter Flathub si besoin
   /usr/local/bin/mineos-flatpak-setup 2>/dev/null
-
   IFS='|' read -ra CHOSEN <<< "$SELECTED"
   for name in "${CHOSEN[@]}"; do
     for app in "${APPS_LINUX[@]}"; do
       APP_NAME=$(echo "$app" | cut -d'|' -f1)
       APP_CMD=$(echo "$app" | cut -d'|' -f2)
       if [ "$APP_NAME" = "$name" ]; then
-        (
-          echo "0"
-          echo "# Installation de $APP_NAME..."
-          eval "$APP_CMD" 2>/dev/null
-          echo "100"
-          echo "# $APP_NAME installé !"
-        ) | zenity --progress \
-          --title="Installation" \
-          --text="Installation de $APP_NAME..." \
-          --auto-close --width=400 2>/dev/null
+        (echo "0"; echo "# Installation de $APP_NAME..."; eval "$APP_CMD" 2>/dev/null; echo "100"; echo "# $APP_NAME installé !") \
+          | zenity --progress --title="Installation" --text="Installation de $APP_NAME..." --auto-close --width=400 2>/dev/null
       fi
     done
   done
@@ -653,18 +608,11 @@ show_windows() {
     NAME=$(echo "$app" | cut -d'|' -f1)
     ITEMS="$ITEMS FALSE $NAME"
   done
-
-  SELECTED=$(zenity --list \
-    --checklist \
-    --title="🪟 Apps Windows" \
-    --text="Sélectionnez les apps Windows à installer :" \
-    --column="✓" --column="Application" \
-    $ITEMS \
-    --width=500 --height=400 \
-    --separator="|" 2>/dev/null)
-
+  SELECTED=$(zenity --list --checklist \
+    --title="🪟 Apps Windows" --text="Sélectionnez les apps Windows :" \
+    --column="✓" --column="Application" $ITEMS \
+    --width=500 --height=400 --separator="|" 2>/dev/null)
   [ -z "$SELECTED" ] && show_menu && return
-
   IFS='|' read -ra CHOSEN <<< "$SELECTED"
   for name in "${CHOSEN[@]}"; do
     for app in "${APPS_WINDOWS[@]}"; do
@@ -672,16 +620,10 @@ show_windows() {
       APP_URL=$(echo "$app" | cut -d'|' -f2)
       if [ "$APP_NAME" = "$name" ]; then
         TMPFILE="/tmp/$(basename $APP_URL)"
-        (
-          echo "10"; echo "# Téléchargement de $APP_NAME..."
-          wget -qO "$TMPFILE" "$APP_URL" 2>/dev/null
-          echo "70"; echo "# Lancement de l'installeur..."
-          WINEFSYNC=1 wine "$TMPFILE" 2>/dev/null &
-          echo "100"; echo "# Installeur lancé !"
-        ) | zenity --progress \
-          --title="Installation Windows" \
-          --text="Installation de $APP_NAME..." \
-          --auto-close --width=400 2>/dev/null
+        (echo "10"; echo "# Téléchargement..."; wget -qO "$TMPFILE" "$APP_URL" 2>/dev/null; \
+         echo "70"; echo "# Lancement..."; WINEFSYNC=1 wine "$TMPFILE" 2>/dev/null &; \
+         echo "100"; echo "# Lancé !") \
+          | zenity --progress --title="Installation Windows" --text="$APP_NAME..." --auto-close --width=400 2>/dev/null
       fi
     done
   done
@@ -689,11 +631,8 @@ show_windows() {
 }
 
 show_games() {
-  CHOICE=$(zenity --list \
-    --title="🎮 Jeux" \
-    --text="Ouvrir via :" \
-    --column="Launcher" \
-    "Steam" "Lutris" "PlayOnLinux" \
+  CHOICE=$(zenity --list --title="🎮 Jeux" --text="Ouvrir via :" \
+    --column="Launcher" "Steam" "Lutris" "PlayOnLinux" \
     --width=300 --height=250 2>/dev/null)
   case "$CHOICE" in
     Steam) gamemoderun steam & ;;
@@ -706,7 +645,6 @@ show_menu
 STOREEOF
 chmod +x /usr/local/bin/mineos-store
 
-# .desktop du store
 cat > /usr/share/applications/mineos-store.desktop << 'EOF'
 [Desktop Entry]
 Name=MineOS Store
@@ -717,7 +655,6 @@ Terminal=false
 Type=Application
 Categories=System;
 EOF
-
 echo ">>> MineOS Store OK"
 HOOKEOF
 
@@ -725,14 +662,13 @@ HOOKEOF
 cat > config/hooks/live/0600-xfce-desktop.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
-echo ">>> XFCE bureau MineOS..."
+echo ">>> XFCE bureau MineOS (Ubuntu)..."
 
 mkdir -p /etc/skel/{Bureau,Documents,Images,Musique,Telecharges,Jeux}
 mkdir -p /etc/skel/.config/xfce4/{xfconf/xfce-perchannel-xml,panel}
 mkdir -p /usr/share/themes/MineOS-Dark/{gtk-3.0,gtk-2.0,xfwm4}
 mkdir -p /usr/share/mineos/wallpapers
 
-# ── Thème GTK3 ──
 cat > /usr/share/themes/MineOS-Dark/gtk-3.0/gtk.css << 'EOF'
 @define-color bg_color #1a1a2e;
 @define-color fg_color #e2e8f0;
@@ -781,7 +717,6 @@ notebook tab:checked { border-bottom: 2px solid @accent_color; color: @accent_co
 tooltip { background: #0d2137; border: 1px solid @border_color; color: @fg_color; border-radius: 6px; }
 EOF
 
-# ── GTK2 ──
 cat > /usr/share/themes/MineOS-Dark/gtk-2.0/gtkrc << 'EOF'
 gtk-color-scheme = "bg_color:#1a1a2e\nfg_color:#e2e8f0\nbase_color:#16213e\ntext_color:#e2e8f0\nselected_bg_color:#4ade80\nselected_fg_color:#0d1117"
 style "default" {
@@ -806,7 +741,6 @@ style "default" {
 class "*" style "default"
 EOF
 
-# ── XFWM4 (décorations fenêtres) ──
 cat > /usr/share/themes/MineOS-Dark/xfwm4/themerc << 'EOF'
 shadow_delta_height=0
 shadow_delta_width=0
@@ -826,10 +760,8 @@ title_vertical_offset_active=3
 title_vertical_offset_inactive=3
 EOF
 
-# ── Config XFCE (xfconf) ──
 mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml
 
-# Apparence générale
 cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xsettings" version="1.0">
@@ -847,7 +779,6 @@ cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml << 'EOF'
 </channel>
 EOF
 
-# Gestionnaire de fenêtres XFWM4
 cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfwm4" version="1.0">
@@ -865,7 +796,6 @@ cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml << 'EOF'
 </channel>
 EOF
 
-# Fond d'écran
 cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfce4-desktop" version="1.0">
@@ -897,7 +827,6 @@ cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml << 'E
 </channel>
 EOF
 
-# Barre des tâches XFCE (panel en bas)
 cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfce4-panel" version="1.0">
@@ -948,7 +877,6 @@ cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml << 'EOF
 </channel>
 EOF
 
-# Whisker Menu (menu démarrer)
 cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/whiskermenu.xml << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="whiskermenu" version="1.0">
@@ -963,7 +891,6 @@ cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/whiskermenu.xml << 'EOF
 </channel>
 EOF
 
-# Session XFCE (apps au démarrage)
 mkdir -p /etc/skel/.config/autostart
 
 cat > /etc/skel/.config/autostart/mineos-startup.desktop << 'EOF'
@@ -976,26 +903,16 @@ EOF
 
 cat > /usr/local/bin/mineos-startup << 'EOF'
 #!/bin/bash
-# Démarrage MineOS
 sleep 2
-
-# Flatpak Flathub
 /usr/local/bin/mineos-flatpak-setup 2>/dev/null &
-
-# Vulkan
 source /usr/local/bin/mineos-vulkan-setup 2>/dev/null
-
-# GameMode daemon
 /usr/lib/gamemode/gamemoded 2>/dev/null &
-
-# Notification bienvenue
 notify-send "⛏ MineOS Gaming" \
   "Bienvenue !\nStore : menu ⛏ → MineOS Store\nexe <fichier.exe> dans le terminal" \
   --icon=system-run 2>/dev/null &
 EOF
 chmod +x /usr/local/bin/mineos-startup
 
-# ── Raccourcis bureau ──
 for ITEM in store opera terminal files; do
   case $ITEM in
     store)    NAME="MineOS Store";  EXEC="mineos-store";        ICON="system-software-install" ;;
@@ -1013,28 +930,17 @@ DEOF
   chmod +x "/etc/skel/Bureau/${ITEM}.desktop"
 done
 
-# ── Wallpapers ──
 mkdir -p /usr/share/mineos/wallpapers
 python3 << 'PYEOF'
 try:
-  from PIL import Image, ImageDraw, ImageFilter
-  import math
-
-  # Wallpaper 1 : MineOS Dark Grid (défaut)
+  from PIL import Image, ImageDraw
   img = Image.new('RGB', (1920, 1080), '#1a1a2e')
   d = ImageDraw.Draw(img)
   for x in range(0, 1920, 32):
       d.line([(x,0),(x,1080)], fill='#1f2a3d', width=1)
   for y in range(0, 1080, 32):
       d.line([(0,y),(1920,y)], fill='#1f2a3d', width=1)
-  # Dégradé radial vert au centre
-  for r in range(400, 0, -4):
-      alpha = int(255 * (1 - r/400) * 0.08)
-      d.ellipse([960-r, 540-r, 960+r, 540+r],
-                outline=(74, 222, 128, alpha))
   img.save('/usr/share/mineos/wallpapers/default.png')
-
-  # Wallpaper 2 : Bleu foncé
   img2 = Image.new('RGB', (1920, 1080), '#0a1628')
   d2 = ImageDraw.Draw(img2)
   for x in range(0, 1920, 48):
@@ -1042,8 +948,6 @@ try:
   for y in range(0, 1080, 48):
       d2.line([(0,y),(1920,y)], fill='#0d2137', width=1)
   img2.save('/usr/share/mineos/wallpapers/blue.png')
-
-  # Wallpaper 3 : Violet
   img3 = Image.new('RGB', (1920, 1080), '#1a0a2e')
   d3 = ImageDraw.Draw(img3)
   for x in range(0, 1920, 32):
@@ -1051,19 +955,16 @@ try:
   for y in range(0, 1080, 32):
       d3.line([(0,y),(1920,y)], fill='#2d1b69', width=1)
   img3.save('/usr/share/mineos/wallpapers/purple.png')
-
   print("3 wallpapers créés")
 except Exception as e:
-  print(f"Wallpaper PIL error: {e}")
+  print(f"PIL error: {e}")
   import subprocess
   subprocess.run(['convert','-size','1920x1080','gradient:#1a1a2e-#0d2137',
     '/usr/share/mineos/wallpapers/default.png'], capture_output=True)
 PYEOF
 
-# Lien pour le script de changement de fond
 cat > /usr/local/bin/mineos-wallpaper << 'EOF'
 #!/bin/bash
-# Sélecteur de fond d'écran MineOS
 CHOICE=$(zenity --list \
   --title="🖼 Fond d'écran MineOS" \
   --text="Choisissez un fond d'écran :" \
@@ -1074,22 +975,16 @@ CHOICE=$(zenity --list \
   "📁" "Choisir un fichier..." "custom" \
   --width=480 --height=300 \
   --print-column=3 2>/dev/null)
-
 [ -z "$CHOICE" ] && exit 0
-
 if [ "$CHOICE" = "custom" ]; then
   CHOICE=$(zenity --file-selection \
     --title="Choisir une image" \
     --file-filter="Images | *.png *.jpg *.jpeg *.webp" 2>/dev/null)
   [ -z "$CHOICE" ] && exit 0
 fi
-
-# Appliquer via xfconf-query
 xfconf-query -c xfce4-desktop \
   -p /backdrop/screen0/monitorVirtual1/workspace0/last-image \
-  -s "$CHOICE" 2>/dev/null || \
-xfdesktop --reload 2>/dev/null || true
-
+  -s "$CHOICE" 2>/dev/null || xfdesktop --reload 2>/dev/null || true
 notify-send "🖼 MineOS" "Fond d'écran changé !" 2>/dev/null
 EOF
 chmod +x /usr/local/bin/mineos-wallpaper
@@ -1104,7 +999,6 @@ Type=Application
 Categories=Settings;
 EOF
 
-# ── .bashrc gaming ──
 cat > /etc/skel/.bashrc << 'EOF'
 export LANG=fr_FR.UTF-8
 export WINEFSYNC=1
@@ -1126,7 +1020,6 @@ echo "  ⛏ MineOS Gaming — store | exe <app.exe> | gpu | wallpaper"
 echo ""
 EOF
 
-# ── Script lanceur EXE ──
 cat > /usr/local/bin/mineos-exe << 'EOF'
 #!/bin/bash
 FILE="$1"
@@ -1167,7 +1060,6 @@ indicators=~host;~spacer;~clock;~spacer;~session;~power
 EOF
 HOOKEOF
 
-# chmod tous les hooks
 chmod +x config/hooks/live/*.hook.chroot
 
 # ─────────────────────────────────────────────
