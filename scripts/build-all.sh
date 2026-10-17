@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 #  MineOS Gaming Edition — Build complet
-#  Tourne entièrement en root (appelé via sudo depuis CI)
+#  XFCE + Opera GX + Store apps + Personnalisation
 # ============================================================
 set -euo pipefail
 
@@ -13,18 +13,14 @@ echo "============================================"
 echo "  MineOS Gaming v${VERSION}"
 echo "============================================"
 
-# Nettoyer et créer les dossiers de travail
 rm -rf "$BUILD_DIR" "$OUT_DIR"
 mkdir -p "$BUILD_DIR" "$OUT_DIR"
 cd "$BUILD_DIR"
 
 # ─────────────────────────────────────────────
-# ÉTAPE 0 : Forcer Debian (évite ubuntu mirror)
+# ÉTAPE 0 : Forcer mirrors Debian
 # ─────────────────────────────────────────────
-echo ""
-echo "[0/8] Override mirror Debian (fix Ubuntu runner)..."
-
-# live-build lit /etc/live/build.conf en priorité — on force tout ici
+echo "[0/9] Override mirror Debian..."
 mkdir -p /etc/live
 cat > /etc/live/build.conf << 'EOF'
 LB_MIRROR_BOOTSTRAP="http://deb.debian.org/debian"
@@ -32,16 +28,12 @@ LB_MIRROR_BINARY="http://deb.debian.org/debian"
 LB_MIRROR_BINARY_SECURITY="http://security.debian.org/debian-security"
 LB_MIRROR_CHROOT="http://deb.debian.org/debian"
 LB_MIRROR_CHROOT_SECURITY="http://security.debian.org/debian-security"
-LB_MIRROR_CHROOT_UPDATES="http://deb.debian.org/debian"
 EOF
-
-echo "Mirror config forcé : $(cat /etc/live/build.conf)"
 
 # ─────────────────────────────────────────────
 # ÉTAPE 1 : lb config
 # ─────────────────────────────────────────────
-echo ""
-echo "[1/8] lb config..."
+echo "[1/9] lb config..."
 lb config \
   --architectures amd64 \
   --distribution bookworm \
@@ -53,7 +45,6 @@ lb config \
   --mirror-bootstrap "http://deb.debian.org/debian" \
   --mirror-chroot "http://deb.debian.org/debian" \
   --mirror-chroot-security "http://security.debian.org/debian-security" \
-  --mirror-chroot-updates "http://deb.debian.org/debian" \
   --mirror-binary "http://deb.debian.org/debian" \
   --mirror-binary-security "http://security.debian.org/debian-security" \
   --iso-application "MineOS Gaming" \
@@ -61,13 +52,10 @@ lb config \
   --iso-volume "MineOS-${VERSION}" \
   --bootappend-live "boot=live components quiet splash hostname=mineos username=user"
 
-echo "lb config OK"
-
 # ─────────────────────────────────────────────
-# ÉTAPE 2 : Hostname (maintenant on est root = pas de permission denied)
+# ÉTAPE 2 : Hostname
 # ─────────────────────────────────────────────
-echo ""
-echo "[2/8] Hostname & hosts..."
+echo "[2/9] Hostname..."
 mkdir -p config/includes.chroot/etc
 echo "mineos" > config/includes.chroot/etc/hostname
 cat > config/includes.chroot/etc/hosts << 'EOF'
@@ -77,10 +65,9 @@ cat > config/includes.chroot/etc/hosts << 'EOF'
 EOF
 
 # ─────────────────────────────────────────────
-# ÉTAPE 3 : Listes de paquets
+# ÉTAPE 3 : Paquets
 # ─────────────────────────────────────────────
-echo ""
-echo "[3/8] Paquets..."
+echo "[3/9] Paquets..."
 mkdir -p config/package-lists
 
 cat > config/package-lists/00-base.list.chroot << 'EOF'
@@ -101,18 +88,28 @@ tzdata
 rsync
 EOF
 
-cat > config/package-lists/01-desktop.list.chroot << 'EOF'
-openbox
-obconf
-lxappearance
-lxsession
+cat > config/package-lists/01-xfce.list.chroot << 'EOF'
+xfce4
+xfce4-goodies
+xfce4-panel
+xfce4-session
+xfce4-settings
+xfce4-terminal
+xfce4-whiskermenu-plugin
+xfce4-notifyd
+xfce4-screenshooter
+xfce4-taskmanager
+xfce4-power-manager
+xfce4-clipman-plugin
+xfce4-pulseaudio-plugin
+thunar
+thunar-archive-plugin
+thunar-volman
+gvfs
+gvfs-backends
+udisks2
 lightdm
 lightdm-gtk-greeter
-tint2
-nitrogen
-picom
-rofi
-dunst
 xorg
 xserver-xorg
 xinit
@@ -129,17 +126,12 @@ fonts-noto
 fonts-noto-color-emoji
 fonts-liberation
 papirus-icon-theme
+gtk2-engines-murrine
+gtk2-engines-pixbuf
 EOF
 
 cat > config/package-lists/02-apps.list.chroot << 'EOF'
-thunar
-thunar-archive-plugin
-thunar-volman
-gvfs
-gvfs-backends
-udisks2
 mousepad
-tilix
 geany
 vlc
 gimp
@@ -154,6 +146,10 @@ nano
 vim
 zenity
 scrot
+nitrogen
+picom
+rofi
+dunst
 EOF
 
 cat > config/package-lists/03-wine.list.chroot << 'EOF'
@@ -175,11 +171,15 @@ libgl1-mesa-dri
 lutris
 EOF
 
+cat > config/package-lists/05-flatpak.list.chroot << 'EOF'
+flatpak
+gnome-software-plugin-flatpak
+EOF
+
 # ─────────────────────────────────────────────
 # ÉTAPE 4 : Hooks
 # ─────────────────────────────────────────────
-echo ""
-echo "[4/8] Hooks..."
+echo "[4/9] Hooks..."
 mkdir -p config/hooks/live
 
 # ── Locale FR ──────────────────────────────────────────────
@@ -191,32 +191,48 @@ locale-gen
 update-locale LANG=fr_FR.UTF-8 LC_ALL=fr_FR.UTF-8
 HOOKEOF
 
-# ── Google Chrome ───────────────────────────────────────────
-cat > config/hooks/live/0100-chrome.hook.chroot << 'HOOKEOF'
+# ── Opera GX ───────────────────────────────────────────────
+cat > config/hooks/live/0100-opera.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
-echo ">>> Chrome..."
-wget -qO /tmp/chrome.deb \
-  "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
-apt-get install -y /tmp/chrome.deb || apt-get install -f -y
-rm -f /tmp/chrome.deb
-echo ">>> Chrome OK"
+echo ">>> Opera GX..."
+# Clé GPG Opera
+wget -qO /tmp/opera.gpg "https://deb.opera.com/archive.key"
+gpg --dearmor -o /usr/share/keyrings/opera.gpg /tmp/opera.gpg
+rm -f /tmp/opera.gpg
+
+# Repo Opera
+echo "deb [signed-by=/usr/share/keyrings/opera.gpg] https://deb.opera.com/opera-stable/ stable non-free" \
+  > /etc/apt/sources.list.d/opera.list
+
+apt-get update -qq
+apt-get install -y opera-stable 2>/dev/null || {
+  echo "Opera stable indispo, tentative Opera GX..."
+  # Opera GX n'a pas de paquet Linux officiel séparé, on installe Opera stable
+  # qui est la version desktop complète avec les mêmes features
+  apt-get install -y opera-stable || echo "Opera skip"
+}
+
+# Créer alias opera-gx → opera
+ln -sf /usr/bin/opera /usr/local/bin/opera-gx 2>/dev/null || true
+echo ">>> Opera OK"
 HOOKEOF
 
-# ── Wine 32bit + DXVK ──────────────────────────────────────
+# ── Wine 32bit + DXVK + Bottles ───────────────────────────
 cat > config/hooks/live/0200-wine.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
-echo ">>> Wine + DXVK..."
+echo ">>> Wine + DXVK + Bottles..."
 dpkg --add-architecture i386
 apt-get update -qq
 apt-get install -y wine32 libwine:i386 fonts-wine \
   libvulkan1:i386 libgl1-mesa-dri:i386 2>/dev/null || true
 
+# DXVK
 DXVK_VER="2.3.1"
 wget -qO /tmp/dxvk.tar.gz \
   "https://github.com/doitsujin/dxvk/releases/download/v${DXVK_VER}/dxvk-${DXVK_VER}.tar.gz" \
-  || { echo "DXVK download failed, skip"; exit 0; }
+  || { echo "DXVK skip"; exit 0; }
 mkdir -p /tmp/dxvk
 tar -xzf /tmp/dxvk.tar.gz -C /tmp/dxvk --strip-components=1
 mkdir -p /usr/share/dxvk
@@ -228,21 +244,46 @@ cat > /usr/local/bin/wine-dxvk-setup << 'EOF'
 PREFIX="${WINEPREFIX:-$HOME/.wine}"
 cp /usr/share/dxvk/x64/*.dll "$PREFIX/drive_c/windows/system32/" 2>/dev/null || true
 cp /usr/share/dxvk/x32/*.dll "$PREFIX/drive_c/windows/syswow64/" 2>/dev/null || true
-echo "DXVK active dans $PREFIX"
+echo "DXVK active"
 EOF
 chmod +x /usr/local/bin/wine-dxvk-setup
 
+# Bottles via Flatpak (installé au premier démarrage)
+cat > /usr/local/bin/install-bottles << 'EOF'
+#!/bin/bash
+echo ">>> Installation de Bottles..."
+flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install -y flathub com.usebottles.bottles
+echo ">>> Bottles installé ! Lance-le depuis le menu."
+EOF
+chmod +x /usr/local/bin/install-bottles
+
+# Association .exe → Wine
 cat > /usr/share/applications/wine-exe.desktop << 'EOF'
 [Desktop Entry]
 Name=Wine EXE Launcher
-Exec=wine %f
-MimeType=application/x-ms-dos-executable;application/x-msi;
+Exec=mineos-exe %f
+MimeType=application/x-ms-dos-executable;application/x-msi;application/x-ms-shortcut;
 Icon=wine
 Type=Application
 NoDisplay=true
 EOF
 update-desktop-database 2>/dev/null || true
-echo ">>> Wine + DXVK OK"
+
+# Mettre à jour mime pour .exe
+mkdir -p /usr/share/mime/packages
+cat > /usr/share/mime/packages/wine.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-ms-dos-executable">
+    <comment>Executable Windows</comment>
+    <glob pattern="*.exe"/>
+    <glob pattern="*.EXE"/>
+  </mime-type>
+</mime-info>
+EOF
+update-mime-database /usr/share/mime 2>/dev/null || true
+echo ">>> Wine OK"
 HOOKEOF
 
 # ── Kernel Liquorix ─────────────────────────────────────────
@@ -251,7 +292,7 @@ cat > config/hooks/live/0250-kernel.hook.chroot << 'HOOKEOF'
 set -e
 echo ">>> Kernel Liquorix..."
 wget -qO /tmp/liq.gpg "https://liquorix.net/liquorix-keyring.gpg" \
-  || { echo "Liquorix GPG echec, kernel Debian conserve"; exit 0; }
+  || { echo "Liquorix GPG echec"; exit 0; }
 install -D -m 644 /tmp/liq.gpg /usr/share/keyrings/liquorix-keyring.gpg
 . /etc/os-release
 echo "deb [signed-by=/usr/share/keyrings/liquorix-keyring.gpg] https://liquorix.net/debian ${VERSION_CODENAME} main" \
@@ -290,16 +331,13 @@ cat > /etc/gamemode.ini << 'EOF'
 renice=10
 ioprio=0
 inhibit_screensaver=1
-
 [cpu]
 park_cores=no
 pin_cores=yes
 governor=performance
-
 [gpu]
 apply_gpu_optimisations=accept-responsibility
 gpu_device=0
-
 [filter]
 whitelist=steam;lutris;wine;playonlinux
 EOF
@@ -318,32 +356,25 @@ font_size=18
 background_alpha=0.5
 toggle_hud=Shift_R+F12
 EOF
-echo ">>> GameMode + MangoHud OK"
 HOOKEOF
 
-# ── GPU universel NVIDIA / AMD / Intel ──────────────────────
+# ── GPU universel ────────────────────────────────────────────
 cat > config/hooks/live/0500-gpu.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
-echo ">>> Drivers GPU universels..."
-
+echo ">>> Drivers GPU..."
 GPU_INFO=$(lspci 2>/dev/null | grep -iE "VGA|3D|Display" || true)
 HAS_NVIDIA=$(echo "$GPU_INFO" | grep -ic "nvidia" || true)
 HAS_AMD=$(echo "$GPU_INFO"   | grep -icE "amd|radeon|ati" || true)
+echo "GPU: $GPU_INFO"
 
-echo "GPU detecte : $GPU_INFO"
-
-# ── NVIDIA ──
 if [ "$HAS_NVIDIA" -gt 0 ]; then
-  echo ">>> NVIDIA drivers..."
   apt-get update -qq
   apt-get install -y nvidia-driver nvidia-settings libvulkan1 vulkan-tools 2>/dev/null || true
-
   cat > /etc/modprobe.d/blacklist-nouveau.conf << 'EOF'
 blacklist nouveau
 options nouveau modeset=0
 EOF
-
   mkdir -p /etc/X11/xorg.conf.d
   cat > /etc/X11/xorg.conf.d/20-nvidia.conf << 'EOF'
 Section "Device"
@@ -351,25 +382,19 @@ Section "Device"
   Driver "nvidia"
   Option "NoLogo" "1"
   Option "TripleBuffer" "1"
-  Option "AllowIndirectGLXProtocol" "0"
 EndSection
 EOF
-
   cat >> /etc/environment << 'EOF'
 __GL_THREADED_OPTIMIZATIONS=1
 __GL_MaxFramesAllowed=1
 EOF
   update-initramfs -u 2>/dev/null || true
-  echo ">>> NVIDIA OK"
 
-# ── AMD ──
 elif [ "$HAS_AMD" -gt 0 ]; then
-  echo ">>> AMD drivers..."
   apt-get update -qq
   apt-get install -y firmware-amd-graphics libgl1-mesa-dri \
     mesa-vulkan-drivers mesa-va-drivers mesa-vdpau-drivers \
-    libvulkan1 vulkan-tools radeontop 2>/dev/null || true
-
+    libvulkan1 vulkan-tools 2>/dev/null || true
   cat > /etc/modprobe.d/amdgpu.conf << 'EOF'
 options amdgpu si_support=1
 options amdgpu cik_support=1
@@ -378,41 +403,30 @@ options amdgpu dc=1
 options amdgpu ppfeaturemask=0xffffffff
 blacklist radeon
 EOF
-
   cat >> /etc/environment << 'EOF'
 RADV_PERFTEST=aco,ngg
 AMD_VULKAN_ICD=RADV
 mesa_glthread=true
 EOF
 
-  sed -i 's/\[gpu\]/[gpu]\namd_performance_level=high/' /etc/gamemode.ini 2>/dev/null || true
-  echo ">>> AMD OK"
-
-# ── INTEL (defaut) ──
 else
-  echo ">>> Intel drivers (defaut)..."
   apt-get update -qq
   apt-get install -y firmware-misc-nonfree intel-media-va-driver \
     libva-drm2 libva-x11-2 libgl1-mesa-dri \
     mesa-vulkan-drivers libvulkan1 vulkan-tools 2>/dev/null || true
-
   cat > /etc/modprobe.d/i915-gaming.conf << 'EOF'
 options i915 enable_guc=3
 options i915 enable_fbc=1
 options i915 enable_psr=1
 options i915 fastboot=1
-options i915 nuclear_pageflip=1
 EOF
-
   cat >> /etc/environment << 'EOF'
 MESA_LOADER_DRIVER_OVERRIDE=iris
 mesa_glthread=true
 vblank_mode=0
 EOF
-  echo ">>> Intel OK"
 fi
 
-# ── Vulkan ICD auto-selector (lancé au login) ──
 cat > /usr/local/bin/mineos-vulkan-setup << 'EOF'
 #!/bin/bash
 GPU=$(lspci 2>/dev/null | grep -iE "VGA|3D" | head -1)
@@ -426,31 +440,20 @@ fi
 EOF
 chmod +x /usr/local/bin/mineos-vulkan-setup
 
-# ── Script info GPU (commande 'gpu' dans terminal) ──
 cat > /usr/local/bin/mineos-gpu-info << 'EOF'
 #!/bin/bash
 echo "=== MineOS GPU Info ==="
 lspci | grep -iE "VGA|3D|Display"
-echo ""
-glxinfo 2>/dev/null | grep -E "renderer|version" | head -4 || echo "glxinfo non dispo"
-echo ""
-vulkaninfo 2>/dev/null | grep deviceName | head -2 || echo "vulkaninfo non dispo"
-echo ""
-cat /sys/class/drm/card0/device/mem_info_vram_total 2>/dev/null \
-  | awk '{printf "VRAM: %.0f MB\n", $1/1048576}' || true
-nvidia-smi --query-gpu=name,memory.total,temperature.gpu \
-  --format=csv,noheader 2>/dev/null || true
+glxinfo 2>/dev/null | grep -E "renderer|version" | head -4 || true
+vulkaninfo 2>/dev/null | grep deviceName | head -2 || true
 EOF
 chmod +x /usr/local/bin/mineos-gpu-info
-echo ">>> GPU universel OK"
 HOOKEOF
 
 # ── Tweaks système ──────────────────────────────────────────
 cat > config/hooks/live/0550-tweaks.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
-echo ">>> Tweaks systeme..."
-
 cat > /etc/sysctl.d/99-mineos-gaming.conf << 'EOF'
 vm.swappiness=10
 vm.dirty_ratio=15
@@ -458,18 +461,15 @@ vm.dirty_background_ratio=5
 kernel.sched_autogroup_enabled=1
 fs.file-max=2097152
 EOF
-
 cat >> /etc/security/limits.conf << 'EOF'
 * soft nofile 1048576
 * hard nofile 1048576
 * soft memlock unlimited
 * hard memlock unlimited
 EOF
-
 mkdir -p /etc/pulse
 cat > /etc/pulse/daemon.conf << 'EOF'
 default-sample-rate = 48000
-alternate-sample-rate = 44100
 default-fragment-size-msec = 5
 default-fragments = 2
 realtime-scheduling = yes
@@ -477,223 +477,586 @@ realtime-priority = 9
 high-priority = yes
 nice-level = -15
 EOF
-echo ">>> Tweaks OK"
 HOOKEOF
 
-# ── Bureau Openbox ──────────────────────────────────────────
-cat > config/hooks/live/0600-desktop.hook.chroot << 'HOOKEOF'
+# ── Flatpak + Flathub ───────────────────────────────────────
+cat > config/hooks/live/0560-flatpak.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
-echo ">>> Bureau MineOS..."
+echo ">>> Flatpak + Flathub..."
+apt-get install -y flatpak 2>/dev/null || true
+# Ajouter Flathub au démarrage (nécessite réseau)
+cat > /usr/local/bin/mineos-flatpak-setup << 'EOF'
+#!/bin/bash
+flatpak remote-add --if-not-exists flathub \
+  https://dl.flathub.org/repo/flathub.flatpakrepo 2>/dev/null || true
+EOF
+chmod +x /usr/local/bin/mineos-flatpak-setup
 
-mkdir -p /etc/skel/.config/{openbox,tint2,picom,nitrogen}
+# Lancer au démarrage de session
+cat > /etc/xdg/autostart/mineos-flatpak.desktop << 'EOF'
+[Desktop Entry]
+Name=MineOS Flatpak Setup
+Exec=/usr/local/bin/mineos-flatpak-setup
+Type=Application
+X-GNOME-Autostart-enabled=true
+EOF
+echo ">>> Flatpak OK"
+HOOKEOF
+
+# ── MineOS Store (app Linux + Windows) ─────────────────────
+cat > config/hooks/live/0570-store.hook.chroot << 'HOOKEOF'
+#!/bin/bash
+set -e
+echo ">>> MineOS Store..."
+
+mkdir -p /usr/local/bin /usr/share/applications /usr/share/mineos
+
+# ── Script principal du store ──
+cat > /usr/local/bin/mineos-store << 'STOREEOF'
+#!/bin/bash
+# MineOS Store — Installeur apps Linux + Windows
+# Utilise zenity pour l'interface graphique
+
+APPS_LINUX=(
+  "Discord|flatpak install -y flathub com.discordapp.Discord|com.discordapp.Discord"
+  "Spotify|flatpak install -y flathub com.spotify.Client|com.spotify.Client"
+  "OBS Studio|flatpak install -y flathub com.obsproject.Studio|com.obsproject.Studio"
+  "VLC|sudo apt-get install -y vlc|vlc"
+  "GIMP|sudo apt-get install -y gimp|gimp"
+  "LibreOffice|sudo apt-get install -y libreoffice|libreoffice"
+  "VSCode|flatpak install -y flathub com.visualstudio.code|com.visualstudio.code"
+  "Kdenlive|flatpak install -y flathub org.kde.kdenlive|org.kde.kdenlive"
+  "Blender|flatpak install -y flathub org.blender.Blender|org.blender.Blender"
+  "Inkscape|sudo apt-get install -y inkscape|inkscape"
+)
+
+APPS_WINDOWS=(
+  "7-Zip|https://www.7-zip.org/a/7z2301-x64.exe"
+  "WinRAR|https://www.win-rar.com/fileadmin/winrar-versions/winrar/winrar-x64-701.exe"
+  "Notepad++|https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.6.2/npp.8.6.2.Installer.x64.exe"
+)
+
+show_menu() {
+  CHOICE=$(zenity --list \
+    --title="⛏ MineOS Store" \
+    --text="Choisissez une catégorie :" \
+    --column="Catégorie" \
+    "🐧 Applications Linux" \
+    "🪟 Applications Windows (.exe via Wine)" \
+    "🎮 Jeux (Steam / Lutris)" \
+    --width=400 --height=280 2>/dev/null)
+
+  case "$CHOICE" in
+    "🐧 Applications Linux") show_linux ;;
+    "🪟 Applications Windows (.exe via Wine)") show_windows ;;
+    "🎮 Jeux (Steam / Lutris)") show_games ;;
+    *) exit 0 ;;
+  esac
+}
+
+show_linux() {
+  ITEMS=""
+  for app in "${APPS_LINUX[@]}"; do
+    NAME=$(echo "$app" | cut -d'|' -f1)
+    ITEMS="$ITEMS FALSE $NAME"
+  done
+
+  SELECTED=$(zenity --list \
+    --checklist \
+    --title="🐧 Apps Linux" \
+    --text="Sélectionnez les apps à installer :" \
+    --column="✓" --column="Application" \
+    $ITEMS \
+    --width=500 --height=500 \
+    --separator="|" 2>/dev/null)
+
+  [ -z "$SELECTED" ] && show_menu && return
+
+  # Ajouter Flathub si besoin
+  /usr/local/bin/mineos-flatpak-setup 2>/dev/null
+
+  IFS='|' read -ra CHOSEN <<< "$SELECTED"
+  for name in "${CHOSEN[@]}"; do
+    for app in "${APPS_LINUX[@]}"; do
+      APP_NAME=$(echo "$app" | cut -d'|' -f1)
+      APP_CMD=$(echo "$app" | cut -d'|' -f2)
+      if [ "$APP_NAME" = "$name" ]; then
+        (
+          echo "0"
+          echo "# Installation de $APP_NAME..."
+          eval "$APP_CMD" 2>/dev/null
+          echo "100"
+          echo "# $APP_NAME installé !"
+        ) | zenity --progress \
+          --title="Installation" \
+          --text="Installation de $APP_NAME..." \
+          --auto-close --width=400 2>/dev/null
+      fi
+    done
+  done
+  zenity --info --title="MineOS Store" --text="Installation terminée !" 2>/dev/null
+  show_menu
+}
+
+show_windows() {
+  ITEMS=""
+  for app in "${APPS_WINDOWS[@]}"; do
+    NAME=$(echo "$app" | cut -d'|' -f1)
+    ITEMS="$ITEMS FALSE $NAME"
+  done
+
+  SELECTED=$(zenity --list \
+    --checklist \
+    --title="🪟 Apps Windows" \
+    --text="Sélectionnez les apps Windows à installer :" \
+    --column="✓" --column="Application" \
+    $ITEMS \
+    --width=500 --height=400 \
+    --separator="|" 2>/dev/null)
+
+  [ -z "$SELECTED" ] && show_menu && return
+
+  IFS='|' read -ra CHOSEN <<< "$SELECTED"
+  for name in "${CHOSEN[@]}"; do
+    for app in "${APPS_WINDOWS[@]}"; do
+      APP_NAME=$(echo "$app" | cut -d'|' -f1)
+      APP_URL=$(echo "$app" | cut -d'|' -f2)
+      if [ "$APP_NAME" = "$name" ]; then
+        TMPFILE="/tmp/$(basename $APP_URL)"
+        (
+          echo "10"; echo "# Téléchargement de $APP_NAME..."
+          wget -qO "$TMPFILE" "$APP_URL" 2>/dev/null
+          echo "70"; echo "# Lancement de l'installeur..."
+          WINEFSYNC=1 wine "$TMPFILE" 2>/dev/null &
+          echo "100"; echo "# Installeur lancé !"
+        ) | zenity --progress \
+          --title="Installation Windows" \
+          --text="Installation de $APP_NAME..." \
+          --auto-close --width=400 2>/dev/null
+      fi
+    done
+  done
+  show_menu
+}
+
+show_games() {
+  CHOICE=$(zenity --list \
+    --title="🎮 Jeux" \
+    --text="Ouvrir via :" \
+    --column="Launcher" \
+    "Steam" "Lutris" "PlayOnLinux" \
+    --width=300 --height=250 2>/dev/null)
+  case "$CHOICE" in
+    Steam) gamemoderun steam & ;;
+    Lutris) lutris & ;;
+    PlayOnLinux) playonlinux & ;;
+  esac
+}
+
+show_menu
+STOREEOF
+chmod +x /usr/local/bin/mineos-store
+
+# .desktop du store
+cat > /usr/share/applications/mineos-store.desktop << 'EOF'
+[Desktop Entry]
+Name=MineOS Store
+Comment=Installer des applications Linux et Windows
+Exec=mineos-store
+Icon=system-software-install
+Terminal=false
+Type=Application
+Categories=System;
+EOF
+
+echo ">>> MineOS Store OK"
+HOOKEOF
+
+# ── XFCE thème + bureau ─────────────────────────────────────
+cat > config/hooks/live/0600-xfce-desktop.hook.chroot << 'HOOKEOF'
+#!/bin/bash
+set -e
+echo ">>> XFCE bureau MineOS..."
+
 mkdir -p /etc/skel/{Bureau,Documents,Images,Musique,Telecharges,Jeux}
-mkdir -p /usr/share/themes/MineOS-Dark/{gtk-3.0,gtk-2.0}
+mkdir -p /etc/skel/.config/xfce4/{xfconf/xfce-perchannel-xml,panel}
+mkdir -p /usr/share/themes/MineOS-Dark/{gtk-3.0,gtk-2.0,xfwm4}
+mkdir -p /usr/share/mineos/wallpapers
 
-# Thème GTK3
+# ── Thème GTK3 ──
 cat > /usr/share/themes/MineOS-Dark/gtk-3.0/gtk.css << 'EOF'
 @define-color bg_color #1a1a2e;
 @define-color fg_color #e2e8f0;
 @define-color base_color #16213e;
 @define-color selected_bg_color #4ade80;
 @define-color selected_fg_color #0d1117;
-window,.background{background-color:@bg_color;color:@fg_color}
-headerbar,.titlebar{background:#0d2137;border-bottom:1px solid #2d4a6e}
-button{background:rgba(74,222,128,.1);border:1px solid #2d4a6e;border-radius:4px;color:@fg_color}
-button:hover{background:rgba(74,222,128,.2);border-color:#4ade80}
-entry{background:rgba(0,0,0,.4);border:1px solid #2d4a6e;border-radius:4px;color:#22d3ee}
-treeview,.view{background:@base_color;color:@fg_color}
-treeview:selected{background:rgba(74,222,128,.15);color:#4ade80}
+@define-color border_color #2d4a6e;
+@define-color accent_color #4ade80;
+
+* { outline: none; }
+window, .background { background-color: @bg_color; color: @fg_color; }
+headerbar, .titlebar {
+  background: linear-gradient(to bottom, #0d2137, #0a1628);
+  border-bottom: 1px solid @border_color;
+  color: @fg_color;
+  padding: 4px 8px;
+}
+button {
+  background: rgba(74,222,128,0.08);
+  border: 1px solid @border_color;
+  border-radius: 6px;
+  color: @fg_color;
+  padding: 4px 10px;
+  transition: all 0.15s;
+}
+button:hover { background: rgba(74,222,128,0.2); border-color: @accent_color; }
+button:active { background: rgba(74,222,128,0.3); }
+entry {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid @border_color;
+  border-radius: 6px;
+  color: #22d3ee;
+  padding: 4px 8px;
+}
+entry:focus { border-color: @accent_color; }
+treeview, .view { background: @base_color; color: @fg_color; }
+treeview:selected, row:selected { background: rgba(74,222,128,0.15); color: @accent_color; }
+scrollbar slider { background: @border_color; border-radius: 3px; min-width: 6px; min-height: 6px; }
+scrollbar slider:hover { background: @accent_color; }
+menu { background: @bg_color; border: 1px solid @border_color; padding: 4px; }
+menuitem { padding: 6px 12px; border-radius: 4px; }
+menuitem:hover { background: rgba(74,222,128,0.15); color: @accent_color; }
+notebook header { background: @base_color; border-bottom: 1px solid @border_color; }
+notebook tab { padding: 6px 12px; }
+notebook tab:checked { border-bottom: 2px solid @accent_color; color: @accent_color; }
+tooltip { background: #0d2137; border: 1px solid @border_color; color: @fg_color; border-radius: 6px; }
 EOF
 
-# GTK2
+# ── GTK2 ──
 cat > /usr/share/themes/MineOS-Dark/gtk-2.0/gtkrc << 'EOF'
 gtk-color-scheme = "bg_color:#1a1a2e\nfg_color:#e2e8f0\nbase_color:#16213e\ntext_color:#e2e8f0\nselected_bg_color:#4ade80\nselected_fg_color:#0d1117"
 style "default" {
-  bg[NORMAL] = @bg_color
-  fg[NORMAL] = @fg_color
-  base[NORMAL] = @base_color
-  text[NORMAL] = @text_color
-  bg[SELECTED] = @selected_bg_color
-  fg[SELECTED] = @selected_fg_color
+  bg[NORMAL]      = @bg_color
+  bg[ACTIVE]      = @base_color
+  bg[PRELIGHT]    = @base_color
+  bg[SELECTED]    = @selected_bg_color
+  bg[INSENSITIVE] = @bg_color
+  fg[NORMAL]      = @fg_color
+  fg[ACTIVE]      = @fg_color
+  fg[PRELIGHT]    = @fg_color
+  fg[SELECTED]    = @selected_fg_color
+  base[NORMAL]    = @base_color
+  text[NORMAL]    = @text_color
+  engine "murrine" {
+    colorize_scrollbar = FALSE
+    border_shades      = { 0.8, 0.8 }
+    roundness          = 4
+    gradient_shades    = { 1.1, 1.0, 1.0, 0.9 }
+  }
 }
 class "*" style "default"
 EOF
 
-# Openbox autostart
-cat > /etc/skel/.config/openbox/autostart << 'EOF'
-nitrogen --restore &
-picom --config ~/.config/picom/picom.conf &
-tint2 &
-nm-applet &
-dunst &
-pulseaudio --start &
-xdg-user-dirs-update &
-/usr/lib/gamemode/gamemoded 2>/dev/null &
+# ── XFWM4 (décorations fenêtres) ──
+cat > /usr/share/themes/MineOS-Dark/xfwm4/themerc << 'EOF'
+shadow_delta_height=0
+shadow_delta_width=0
+shadow_delta_x=0
+shadow_delta_y=-3
+shadow_opacity=50
+button_layout=O|HMC
+button_offset=2
+button_spacing=2
+full_width_title=true
+maximized_offset=0
+show_popup_shadow=true
+show_frame_shadow=true
+title_font=Noto Sans Bold 10
+title_horizontal_offset=6
+title_vertical_offset_active=3
+title_vertical_offset_inactive=3
+EOF
+
+# ── Config XFCE (xfconf) ──
+mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml
+
+# Apparence générale
+cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xsettings" version="1.0">
+  <property name="Net" type="empty">
+    <property name="ThemeName" type="string" value="MineOS-Dark"/>
+    <property name="IconThemeName" type="string" value="Papirus-Dark"/>
+    <property name="DoubleClickTime" type="int" value="400"/>
+  </property>
+  <property name="Gtk" type="empty">
+    <property name="FontName" type="string" value="Noto Sans 10"/>
+    <property name="MonospaceFontName" type="string" value="Noto Sans Mono 10"/>
+    <property name="CursorThemeName" type="string" value="Adwaita"/>
+    <property name="DecorationLayout" type="string" value="menu:minimize,maximize,close"/>
+  </property>
+</channel>
+EOF
+
+# Gestionnaire de fenêtres XFWM4
+cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="theme" type="string" value="MineOS-Dark"/>
+    <property name="title_font" type="string" value="Noto Sans Bold 10"/>
+    <property name="button_layout" type="string" value="O|HMC"/>
+    <property name="snap_to_border" type="bool" value="true"/>
+    <property name="snap_to_windows" type="bool" value="true"/>
+    <property name="wrap_workspaces" type="bool" value="false"/>
+    <property name="use_compositing" type="bool" value="true"/>
+    <property name="frame_opacity" type="int" value="100"/>
+    <property name="inactive_opacity" type="int" value="90"/>
+  </property>
+</channel>
+EOF
+
+# Fond d'écran
+cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-desktop" version="1.0">
+  <property name="backdrop" type="empty">
+    <property name="screen0" type="empty">
+      <property name="monitorVirtual1" type="empty">
+        <property name="workspace0" type="empty">
+          <property name="last-image" type="string" value="/usr/share/mineos/wallpapers/default.png"/>
+          <property name="image-style" type="int" value="5"/>
+          <property name="color-type" type="int" value="0"/>
+          <property name="rgba1" type="array">
+            <value type="double" value="0.101961"/>
+            <value type="double" value="0.101961"/>
+            <value type="double" value="0.180392"/>
+            <value type="double" value="1.000000"/>
+          </property>
+        </property>
+      </property>
+    </property>
+  </property>
+  <property name="desktop-menu" type="empty">
+    <property name="show" type="bool" value="true"/>
+  </property>
+  <property name="desktop-icons" type="empty">
+    <property name="style" type="int" value="2"/>
+    <property name="icon-size" type="uint" value="48"/>
+    <property name="tooltip-size" type="double" value="128"/>
+  </property>
+</channel>
+EOF
+
+# Barre des tâches XFCE (panel en bas)
+cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-panel" version="1.0">
+  <property name="configver" type="int" value="2"/>
+  <property name="panels" type="array">
+    <value type="int" value="1"/>
+  </property>
+  <property name="panel-1" type="empty">
+    <property name="position" type="string" value="p=8;x=0;y=0"/>
+    <property name="length" type="uint" value="100"/>
+    <property name="position-locked" type="bool" value="true"/>
+    <property name="size" type="uint" value="38"/>
+    <property name="background-style" type="uint" value="1"/>
+    <property name="background-rgba" type="array">
+      <value type="double" value="0.039216"/>
+      <value type="double" value="0.039216"/>
+      <value type="double" value="0.101961"/>
+      <value type="double" value="0.950000"/>
+    </property>
+    <property name="plugin-ids" type="array">
+      <value type="int" value="1"/>
+      <value type="int" value="2"/>
+      <value type="int" value="3"/>
+      <value type="int" value="4"/>
+      <value type="int" value="5"/>
+      <value type="int" value="6"/>
+      <value type="int" value="7"/>
+      <value type="int" value="8"/>
+    </property>
+  </property>
+  <property name="plugins" type="empty">
+    <property name="plugin-1" type="string" value="whiskermenu"/>
+    <property name="plugin-2" type="string" value="separator">
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <property name="plugin-3" type="string" value="tasklist"/>
+    <property name="plugin-4" type="string" value="separator">
+      <property name="expand" type="bool" value="true"/>
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <property name="plugin-5" type="string" value="systray"/>
+    <property name="plugin-6" type="string" value="pulseaudio"/>
+    <property name="plugin-7" type="string" value="power-manager-plugin"/>
+    <property name="plugin-8" type="string" value="clock">
+      <property name="digital-format" type="string" value="%H:%M  %d/%m/%Y"/>
+    </property>
+  </property>
+</channel>
+EOF
+
+# Whisker Menu (menu démarrer)
+cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/whiskermenu.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="whiskermenu" version="1.0">
+  <property name="button-title" type="string" value="⛏ MineOS"/>
+  <property name="button-icon" type="string" value=""/>
+  <property name="show-button-title" type="bool" value="true"/>
+  <property name="show-button-icon" type="bool" value="false"/>
+  <property name="profile-shape" type="int" value="1"/>
+  <property name="show-recent" type="bool" value="true"/>
+  <property name="position-categories-horizontal" type="bool" value="false"/>
+  <property name="position-search-alternate" type="bool" value="false"/>
+</channel>
+EOF
+
+# Session XFCE (apps au démarrage)
+mkdir -p /etc/skel/.config/autostart
+
+cat > /etc/skel/.config/autostart/mineos-startup.desktop << 'EOF'
+[Desktop Entry]
+Name=MineOS Startup
+Exec=/usr/local/bin/mineos-startup
+Type=Application
+X-GNOME-Autostart-enabled=true
+EOF
+
+cat > /usr/local/bin/mineos-startup << 'EOF'
+#!/bin/bash
+# Démarrage MineOS
+sleep 2
+
+# Flatpak Flathub
+/usr/local/bin/mineos-flatpak-setup 2>/dev/null &
+
+# Vulkan
 source /usr/local/bin/mineos-vulkan-setup 2>/dev/null
+
+# GameMode daemon
+/usr/lib/gamemode/gamemoded 2>/dev/null &
+
+# Notification bienvenue
+notify-send "⛏ MineOS Gaming" \
+  "Bienvenue !\nStore : menu ⛏ → MineOS Store\nexe <fichier.exe> dans le terminal" \
+  --icon=system-run 2>/dev/null &
+EOF
+chmod +x /usr/local/bin/mineos-startup
+
+# ── Raccourcis bureau ──
+for ITEM in store opera terminal files; do
+  case $ITEM in
+    store)    NAME="MineOS Store";  EXEC="mineos-store";        ICON="system-software-install" ;;
+    opera)    NAME="Opera GX";      EXEC="opera";               ICON="opera"                   ;;
+    terminal) NAME="Terminal";      EXEC="xfce4-terminal";      ICON="terminal"                ;;
+    files)    NAME="Fichiers";      EXEC="thunar";              ICON="file-manager"            ;;
+  esac
+  cat > "/etc/skel/Bureau/${ITEM}.desktop" << DEOF
+[Desktop Entry]
+Name=${NAME}
+Exec=${EXEC}
+Icon=${ICON}
+Type=Application
+DEOF
+  chmod +x "/etc/skel/Bureau/${ITEM}.desktop"
+done
+
+# ── Wallpapers ──
+mkdir -p /usr/share/mineos/wallpapers
+python3 << 'PYEOF'
+try:
+  from PIL import Image, ImageDraw, ImageFilter
+  import math
+
+  # Wallpaper 1 : MineOS Dark Grid (défaut)
+  img = Image.new('RGB', (1920, 1080), '#1a1a2e')
+  d = ImageDraw.Draw(img)
+  for x in range(0, 1920, 32):
+      d.line([(x,0),(x,1080)], fill='#1f2a3d', width=1)
+  for y in range(0, 1080, 32):
+      d.line([(0,y),(1920,y)], fill='#1f2a3d', width=1)
+  # Dégradé radial vert au centre
+  for r in range(400, 0, -4):
+      alpha = int(255 * (1 - r/400) * 0.08)
+      d.ellipse([960-r, 540-r, 960+r, 540+r],
+                outline=(74, 222, 128, alpha))
+  img.save('/usr/share/mineos/wallpapers/default.png')
+
+  # Wallpaper 2 : Bleu foncé
+  img2 = Image.new('RGB', (1920, 1080), '#0a1628')
+  d2 = ImageDraw.Draw(img2)
+  for x in range(0, 1920, 48):
+      d2.line([(x,0),(x,1080)], fill='#0d2137', width=1)
+  for y in range(0, 1080, 48):
+      d2.line([(0,y),(1920,y)], fill='#0d2137', width=1)
+  img2.save('/usr/share/mineos/wallpapers/blue.png')
+
+  # Wallpaper 3 : Violet
+  img3 = Image.new('RGB', (1920, 1080), '#1a0a2e')
+  d3 = ImageDraw.Draw(img3)
+  for x in range(0, 1920, 32):
+      d3.line([(x,0),(x,1080)], fill='#2d1b69', width=1)
+  for y in range(0, 1080, 32):
+      d3.line([(0,y),(1920,y)], fill='#2d1b69', width=1)
+  img3.save('/usr/share/mineos/wallpapers/purple.png')
+
+  print("3 wallpapers créés")
+except Exception as e:
+  print(f"Wallpaper PIL error: {e}")
+  import subprocess
+  subprocess.run(['convert','-size','1920x1080','gradient:#1a1a2e-#0d2137',
+    '/usr/share/mineos/wallpapers/default.png'], capture_output=True)
+PYEOF
+
+# Lien pour le script de changement de fond
+cat > /usr/local/bin/mineos-wallpaper << 'EOF'
+#!/bin/bash
+# Sélecteur de fond d'écran MineOS
+CHOICE=$(zenity --list \
+  --title="🖼 Fond d'écran MineOS" \
+  --text="Choisissez un fond d'écran :" \
+  --column="Aperçu" --column="Nom" --column="Fichier" \
+  "🟢" "MineOS Dark (défaut)" "/usr/share/mineos/wallpapers/default.png" \
+  "🔵" "MineOS Blue" "/usr/share/mineos/wallpapers/blue.png" \
+  "🟣" "MineOS Purple" "/usr/share/mineos/wallpapers/purple.png" \
+  "📁" "Choisir un fichier..." "custom" \
+  --width=480 --height=300 \
+  --print-column=3 2>/dev/null)
+
+[ -z "$CHOICE" ] && exit 0
+
+if [ "$CHOICE" = "custom" ]; then
+  CHOICE=$(zenity --file-selection \
+    --title="Choisir une image" \
+    --file-filter="Images | *.png *.jpg *.jpeg *.webp" 2>/dev/null)
+  [ -z "$CHOICE" ] && exit 0
+fi
+
+# Appliquer via xfconf-query
+xfconf-query -c xfce4-desktop \
+  -p /backdrop/screen0/monitorVirtual1/workspace0/last-image \
+  -s "$CHOICE" 2>/dev/null || \
+xfdesktop --reload 2>/dev/null || true
+
+notify-send "🖼 MineOS" "Fond d'écran changé !" 2>/dev/null
+EOF
+chmod +x /usr/local/bin/mineos-wallpaper
+
+cat > /usr/share/applications/mineos-wallpaper.desktop << 'EOF'
+[Desktop Entry]
+Name=Changer le fond d'écran
+Exec=mineos-wallpaper
+Icon=preferences-desktop-wallpaper
+Terminal=false
+Type=Application
+Categories=Settings;
 EOF
 
-# Menu clic droit
-cat > /etc/skel/.config/openbox/menu.xml << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<openbox_menu>
-  <menu id="root-menu" label="MineOS">
-    <item label="Chrome">
-      <action name="Execute"><command>google-chrome-stable</command></action>
-    </item>
-    <menu id="gaming-menu" label="Gaming">
-      <item label="Steam">
-        <action name="Execute"><command>gamemoderun steam</command></action>
-      </item>
-      <item label="Lutris">
-        <action name="Execute"><command>lutris</command></action>
-      </item>
-      <item label="PlayOnLinux">
-        <action name="Execute"><command>playonlinux</command></action>
-      </item>
-      <item label="Lancer .exe (Wine)">
-        <action name="Execute"><command>mineos-exe</command></action>
-      </item>
-      <item label="Winetricks">
-        <action name="Execute"><command>winetricks --gui</command></action>
-      </item>
-    </menu>
-    <item label="Fichiers">
-      <action name="Execute"><command>thunar</command></action>
-    </item>
-    <item label="Terminal">
-      <action name="Execute"><command>tilix</command></action>
-    </item>
-    <item label="Bloc-notes">
-      <action name="Execute"><command>mousepad</command></action>
-    </item>
-    <item label="VLC">
-      <action name="Execute"><command>vlc</command></action>
-    </item>
-    <item label="GPU Info">
-      <action name="Execute"><command>tilix -e mineos-gpu-info</command></action>
-    </item>
-    <separator/>
-    <item label="Apparence">
-      <action name="Execute"><command>lxappearance</command></action>
-    </item>
-    <separator/>
-    <item label="Eteindre">
-      <action name="Execute"><command>systemctl poweroff</command></action>
-    </item>
-    <item label="Redemarrer">
-      <action name="Execute"><command>systemctl reboot</command></action>
-    </item>
-  </menu>
-</openbox_menu>
-EOF
-
-# Raccourcis clavier
-cat > /etc/skel/.config/openbox/rc.xml << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<openbox_config>
-  <theme>
-    <name>MineOS-Dark</name>
-    <font place="ActiveWindow">
-      <name>Noto Sans</name><size>10</size><weight>Bold</weight>
-    </font>
-    <font place="InactiveWindow">
-      <name>Noto Sans</name><size>10</size>
-    </font>
-  </theme>
-  <desktops><number>4</number><firstdesk>1</firstdesk></desktops>
-  <keyboard>
-    <keybind key="Super-Return">
-      <action name="Execute"><command>tilix</command></action>
-    </keybind>
-    <keybind key="Super-e">
-      <action name="Execute"><command>thunar</command></action>
-    </keybind>
-    <keybind key="Super-b">
-      <action name="Execute"><command>google-chrome-stable</command></action>
-    </keybind>
-    <keybind key="Super-g">
-      <action name="Execute"><command>gamemoderun steam</command></action>
-    </keybind>
-    <keybind key="Super-l">
-      <action name="Execute"><command>lutris</command></action>
-    </keybind>
-    <keybind key="Super-r">
-      <action name="Execute"><command>rofi -show run</command></action>
-    </keybind>
-    <keybind key="A-F4"><action name="Close"/></keybind>
-    <keybind key="Super-d"><action name="ToggleShowDesktop"/></keybind>
-    <keybind key="A-Tab"><action name="NextWindow"/></keybind>
-    <keybind key="Print">
-      <action name="Execute">
-        <command>scrot ~/Images/screenshot-%Y%m%d-%H%M%S.png</command>
-      </action>
-    </keybind>
-  </keyboard>
-  <mouse>
-    <context name="Desktop">
-      <mousebind button="Right" action="Press">
-        <action name="ShowMenu"><menu>root-menu</menu></action>
-      </mousebind>
-    </context>
-    <context name="Titlebar">
-      <mousebind button="Left" action="Drag"><action name="Move"/></mousebind>
-      <mousebind button="Left" action="DoubleClick">
-        <action name="MaximizeWindow"/>
-      </mousebind>
-    </context>
-  </mouse>
-</openbox_config>
-EOF
-
-# Tint2 barre des taches
-cat > /etc/skel/.config/tint2/tint2rc << 'EOF'
-panel_items = TSC
-panel_size = 100% 36
-panel_margin = 0 0
-panel_padding = 4 4 4
-panel_background_id = 1
-panel_layer = bottom
-panel_position = bottom center horizontal
-rounded = 0
-border_width = 0
-background_color = #0a0a1a 100
-border_color = #2d4a6e 100
-taskbar_mode = single_desktop
-taskbar_padding = 2 3 2
-task_icon = 1
-task_text = 1
-task_maximum_size = 150 30
-task_padding = 6 3 6
-task_font = Noto Sans 9
-task_font_color = #e2e8f0 80
-task_active_font_color = #4ade80 100
-systray_padding = 4 4 4
-time1_format = %H:%M
-time1_font = Noto Sans Bold 10
-time2_format = %d/%m/%Y
-time2_font = Noto Sans 8
-clock_font_color = #e2e8f0 90
-clock_padding = 8 0
-EOF
-
-# Picom (transparence + ombres)
-cat > /etc/skel/.config/picom/picom.conf << 'EOF'
-backend = "glx";
-vsync = true;
-shadow = true;
-shadow-radius = 12;
-shadow-offset-x = -12;
-shadow-offset-y = -12;
-shadow-opacity = 0.4;
-shadow-exclude = ["class_g = 'tint2'", "class_g = 'steam'"];
-fading = true;
-fade-in-step = 0.06;
-fade-out-step = 0.06;
-corner-radius = 8;
-EOF
-
-# .bashrc
+# ── .bashrc gaming ──
 cat > /etc/skel/.bashrc << 'EOF'
 export LANG=fr_FR.UTF-8
 export WINEFSYNC=1
@@ -701,91 +1064,49 @@ export mesa_glthread=true
 PS1='\[\e[0;32m\]mining \[\e[1;36m\]\u\[\e[0;37m\]@\[\e[1;34m\]mineos\[\e[0;37m\]:\[\e[1;33m\]\w\[\e[0m\]\$ '
 alias ls='ls --color=auto'
 alias ll='ls -lah --color=auto'
-alias chrome='google-chrome-stable'
+alias chrome='opera'
 alias exe='gamemoderun wine'
 alias exe-dxvk='DXVK_HUD=fps gamemoderun wine'
 alias steam='gamemoderun steam'
 alias gpu='mineos-gpu-info'
-alias dxvk='wine-dxvk-setup'
+alias store='mineos-store'
+alias wallpaper='mineos-wallpaper'
 [ -f /etc/bash_completion ] && . /etc/bash_completion
 source /usr/local/bin/mineos-vulkan-setup 2>/dev/null
 echo ""
-echo "  MineOS Gaming Edition"
-echo "  exe <fichier.exe>  |  gpu  |  Super+G=Steam  |  Shift+F12=MangoHud"
+echo "  ⛏ MineOS Gaming — store | exe <app.exe> | gpu | wallpaper"
 echo ""
 EOF
 
-# Raccourcis bureau
-for APP in steam lutris chrome terminal; do
-  case $APP in
-    steam)    EXEC="gamemoderun steam"; ICON="steam";           NAME="Steam"     ;;
-    lutris)   EXEC="lutris";            ICON="lutris";          NAME="Lutris"    ;;
-    chrome)   EXEC="google-chrome-stable"; ICON="google-chrome"; NAME="Chrome"  ;;
-    terminal) EXEC="tilix";             ICON="terminal";        NAME="Terminal"  ;;
-  esac
-  cat > "/etc/skel/Bureau/${APP}.desktop" << DEOF
-[Desktop Entry]
-Name=${NAME}
-Exec=${EXEC}
-Icon=${ICON}
-Type=Application
-DEOF
-  chmod +x "/etc/skel/Bureau/${APP}.desktop"
-done
-
-# Wallpaper
-mkdir -p /usr/share/mineos
-python3 -c "
-from PIL import Image, ImageDraw
-img = Image.new('RGB', (1920, 1080), '#1a1a2e')
-d = ImageDraw.Draw(img)
-for x in range(0, 1920, 32):
-    d.line([(x,0),(x,1080)], fill='#1f2a3d')
-for y in range(0, 1080, 32):
-    d.line([(0,y),(1920,y)], fill='#1f2a3d')
-img.save('/usr/share/mineos/wallpaper.png')
-" 2>/dev/null || \
-convert -size 1920x1080 gradient:'#1a1a2e-#0d2137' \
-  /usr/share/mineos/wallpaper.png 2>/dev/null || true
-
-mkdir -p /etc/skel/.config/nitrogen
-cat > /etc/skel/.config/nitrogen/bg-saved.cfg << 'EOF'
-[xin_-1]
-file=/usr/share/mineos/wallpaper.png
-mode=4
-bgcolor=#1a1a2e
-EOF
-
-# Script lanceur EXE
+# ── Script lanceur EXE ──
 cat > /usr/local/bin/mineos-exe << 'EOF'
 #!/bin/bash
 FILE="$1"
 if [ -z "$FILE" ]; then
   FILE=$(zenity --file-selection \
     --file-filter="Executables | *.exe *.msi *.bat" \
-    --title="MineOS - Choisir un .exe" 2>/dev/null)
+    --title="MineOS - Lancer un .exe" 2>/dev/null)
   [ -z "$FILE" ] && exit 0
 fi
-[ ! -f "$FILE" ] && { zenity --error --text="Fichier introuvable : $FILE" 2>/dev/null; exit 1; }
-notify-send "MineOS" "Lancement : $(basename "$FILE")" 2>/dev/null
+notify-send "⚡ MineOS" "Lancement : $(basename "$FILE")" 2>/dev/null
 WINEFSYNC=1 gamemoderun wine "$FILE"
 EOF
 chmod +x /usr/local/bin/mineos-exe
-echo ">>> Bureau OK"
+
+echo ">>> Bureau XFCE OK"
 HOOKEOF
 
-# ── LightDM autologin ───────────────────────────────────────
+# ── LightDM ──────────────────────────────────────────────────
 cat > config/hooks/live/0700-lightdm.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
-echo ">>> LightDM..."
 mkdir -p /etc/lightdm
 cat > /etc/lightdm/lightdm.conf << 'EOF'
 [Seat:*]
 autologin-user=user
 autologin-user-timeout=0
 greeter-session=lightdm-gtk-greeter
-user-session=openbox
+user-session=xfce
 EOF
 cat > /etc/lightdm/lightdm-gtk-greeter.conf << 'EOF'
 [greeter]
@@ -793,29 +1114,26 @@ background=#1a1a2e
 theme-name=MineOS-Dark
 icon-theme-name=Papirus-Dark
 font-name=Noto Sans 11
-clock-format=%H:%M - %A %d %B
+clock-format=%H:%M — %A %d %B
+indicators=~host;~spacer;~clock;~spacer;~session;~power
 EOF
-echo ">>> LightDM OK"
 HOOKEOF
 
-# Rendre tous les hooks exécutables
+# chmod tous les hooks
 chmod +x config/hooks/live/*.hook.chroot
 
 # ─────────────────────────────────────────────
-# ÉTAPE 5 : Includes (fichiers copiés dans le rootfs)
+# ÉTAPE 5 : Includes
 # ─────────────────────────────────────────────
-echo ""
-echo "[5/8] Includes..."
+echo "[5/9] Includes..."
 mkdir -p config/includes.chroot/usr/local/bin
-
-# Copie anticipée de mineos-exe (backup si hook échoue)
 cat > config/includes.chroot/usr/local/bin/mineos-exe << 'EOF'
 #!/bin/bash
 FILE="$1"
 if [ -z "$FILE" ]; then
   FILE=$(zenity --file-selection \
     --file-filter="Executables | *.exe *.msi *.bat" \
-    --title="MineOS - Choisir un .exe" 2>/dev/null)
+    --title="MineOS - Lancer un .exe" 2>/dev/null)
   [ -z "$FILE" ] && exit 0
 fi
 notify-send "MineOS" "Lancement : $(basename "$FILE")" 2>/dev/null
@@ -826,26 +1144,23 @@ chmod +x config/includes.chroot/usr/local/bin/mineos-exe
 # ─────────────────────────────────────────────
 # ÉTAPE 6 : Compression
 # ─────────────────────────────────────────────
-echo ""
-echo "[6/8] Compression xz..."
+echo "[6/9] Compression xz..."
 mkdir -p config/compression
 echo "xz" > config/compression/filesystem
 
 # ─────────────────────────────────────────────
 # ÉTAPE 7 : lb build
 # ─────────────────────────────────────────────
-echo ""
-echo "[7/8] lb build (20-30 min)..."
+echo "[7/9] lb build (20-30 min)..."
 lb build 2>&1 | tee /tmp/lb-build.log
 
 # ─────────────────────────────────────────────
 # ÉTAPE 8 : Collecte ISO
 # ─────────────────────────────────────────────
-echo ""
-echo "[8/8] Collecte ISO..."
+echo "[8/9] Collecte ISO..."
 ISO=$(find "$BUILD_DIR" -name "*.iso" 2>/dev/null | head -1)
 if [ -z "$ISO" ]; then
-  echo "ERREUR : ISO introuvable. Dernieres lignes du log :"
+  echo "ERREUR : ISO introuvable."
   tail -100 /tmp/lb-build.log
   exit 1
 fi
@@ -853,9 +1168,6 @@ fi
 cp "$ISO" "$OUT_DIR/MineOS-Gaming-${VERSION}-x86_64.iso"
 sha256sum "$OUT_DIR/MineOS-Gaming-${VERSION}-x86_64.iso" > "$OUT_DIR/SHA256SUMS"
 
-echo ""
-echo "============================================"
-echo "  ISO : $OUT_DIR/MineOS-Gaming-${VERSION}-x86_64.iso"
-echo "  Taille : $(du -sh $OUT_DIR/MineOS-Gaming-${VERSION}-x86_64.iso | cut -f1)"
-echo "  SHA256 : $(cut -d' ' -f1 $OUT_DIR/SHA256SUMS)"
-echo "============================================"
+echo "[9/9] Done !"
+echo "ISO : $OUT_DIR/MineOS-Gaming-${VERSION}-x86_64.iso"
+echo "Taille : $(du -sh $OUT_DIR/MineOS-Gaming-${VERSION}-x86_64.iso | cut -f1)"
