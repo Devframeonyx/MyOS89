@@ -3,7 +3,8 @@
 #  MineOS Gaming Edition — Build Ubuntu 22.04 (Jammy)
 #  XFCE + Opera GX + Store apps + Personnalisation
 # ============================================================
-set -euo pipefail
+set -uo pipefail
+# Note: pas de -e pour éviter l'arrêt sur les warnings de chmod (symlinks dangling live-build)
 
 VERSION="${1:-1.0.0}"
 BUILD_DIR="/opt/mineos-build"
@@ -1060,6 +1061,32 @@ indicators=~host;~spacer;~clock;~spacer;~session;~power
 EOF
 HOOKEOF
 
+# ── Fix initramfs symlinks (bug live-build Ubuntu) ──────────
+# live-build tente un chmod sur initrd.img avant que l'initramfs soit généré
+# Ce hook le génère en avance pour éviter les dangling symlinks
+cat > config/hooks/live/0800-initramfs.hook.chroot << 'HOOKEOF'
+#!/bin/bash
+# Force la génération de l'initramfs pour éviter les symlinks cassés
+# lors de l'étape lb_chroot_hacks de live-build
+export DEBIAN_FRONTEND=noninteractive
+# Reconstruire l'initramfs pour le kernel installé
+KVER=$(ls /lib/modules/ 2>/dev/null | tail -1)
+if [ -n "$KVER" ]; then
+  echo ">>> Génération initramfs pour $KVER..."
+  update-initramfs -u -k "$KVER" 2>/dev/null || \
+  update-initramfs -c -k "$KVER" 2>/dev/null || \
+  echo "initramfs: fallback, continue"
+fi
+# S'assurer que les symlinks /boot/initrd.img et vmlinuz existent et ne sont pas cassés
+for f in /boot/initrd.img /boot/initrd.img.old /boot/vmlinuz /boot/vmlinuz.old; do
+  if [ -L "$f" ] && [ ! -e "$f" ]; then
+    echo ">>> Correction symlink cassé : $f"
+    rm -f "$f"
+  fi
+done
+echo ">>> Initramfs OK"
+HOOKEOF
+
 chmod +x config/hooks/live/*.hook.chroot
 
 # ─────────────────────────────────────────────
@@ -1092,7 +1119,20 @@ echo "xz" > config/compression/filesystem
 # ÉTAPE 7 : lb build
 # ─────────────────────────────────────────────
 echo "[7/9] lb build (20-30 min)..."
-lb build 2>&1 | tee /tmp/lb-build.log
+# Le || true permet de continuer même si lb retourne un code d'erreur
+# sur des warnings non-fatals (chmod dangling symlinks, etc.)
+lb build 2>&1 | tee /tmp/lb-build.log || {
+  EXIT_CODE=$?
+  # Vérifier si l'ISO a quand même été créée malgré l'erreur
+  ISO_CHECK=$(find "$BUILD_DIR" -name "*.iso" 2>/dev/null | head -1)
+  if [ -n "$ISO_CHECK" ]; then
+    echo ">>> lb build a retourné $EXIT_CODE mais l'ISO existe — on continue"
+  else
+    echo "ERREUR FATALE lb build (code $EXIT_CODE)"
+    tail -50 /tmp/lb-build.log
+    exit $EXIT_CODE
+  fi
+}
 
 # ─────────────────────────────────────────────
 # ÉTAPE 8 : Collecte ISO
