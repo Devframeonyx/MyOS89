@@ -4,7 +4,8 @@
 #  XFCE + Opera GX + Store apps + Personnalisation
 # ============================================================
 set -uo pipefail
-# Note: pas de -e pour éviter l'arrêt sur les warnings de chmod (symlinks dangling live-build)
+# Pas de -e : lb_chroot_hacks peut retourner des warnings non-fatals (chmod symlinks)
+# Ces erreurs sont gérées manuellement dans l'étape lb build (voir étape 7).
 
 VERSION="${1:-1.0.0}"
 BUILD_DIR="/opt/mineos-build"
@@ -53,6 +54,7 @@ lb config \
   --distribution jammy \
   --debian-installer none \
   --binary-images iso-hybrid \
+  --bootloaders "syslinux,grub-efi" \
   --memtest none \
   --apt-recommends false \
   --archive-areas "main restricted universe multiverse" \
@@ -121,6 +123,19 @@ locales
 tzdata
 rsync
 ubuntu-keyring
+EOF
+
+# Paquets boot EFI + BIOS (nécessaires pour iso-hybrid bootable sur vrai PC)
+cat > config/package-lists/00-boot.list.chroot << 'EOF'
+grub-efi-amd64
+grub-efi-amd64-bin
+grub-pc-bin
+shim-signed
+mtools
+syslinux
+syslinux-common
+isolinux
+efibootmgr
 EOF
 
 cat > config/package-lists/01-xfce.list.chroot << 'EOF'
@@ -1061,19 +1076,21 @@ indicators=~host;~spacer;~clock;~spacer;~session;~power
 EOF
 HOOKEOF
 
-# ── Fix initramfs / flush triggers dpkg (bug live-build Ubuntu) ──────────
-# live-build tente un chmod sur initrd.img avant que l'initramfs soit généré.
-# Cause : update-initramfs est "deferred" (trigger activé mais jamais flushé).
-# Fix : flush des triggers dpkg PUIS génération forcée pour tous les kernels.
+# ── Fix initramfs + suppression symlinks .old (bug live-build Ubuntu) ───────
+# Pourquoi ça plante :
+#   1. Le kernel postinst crée /boot/initrd.img.old -> initrd.img-<old-kver>
+#      mais dans un chroot frais il n'y a pas d'"ancien" kernel → symlink cassé.
+#   2. update-initramfs est mis en "deferred" par dpkg et n'est jamais flushé.
+#   3. lb_chroot_hacks tente chmod sur ces symlinks cassés → exit 123.
+# Fix : flush des triggers dpkg + génération initramfs + suppression des .old.
 cat > config/hooks/live/0800-initramfs.hook.chroot << 'HOOKEOF'
 #!/bin/bash
-# Flush des triggers dpkg en attente (dont update-initramfs)
 export DEBIAN_FRONTEND=noninteractive
-echo ">>> Flush triggers dpkg..."
+
+echo ">>> Flush triggers dpkg (dont update-initramfs différé)..."
 dpkg --configure -a 2>/dev/null || true
 
-# Générer l'initramfs pour TOUS les kernels présents
-echo ">>> Génération initramfs (all)..."
+echo ">>> Génération initramfs pour tous les kernels présents..."
 update-initramfs -u -k all 2>/dev/null || true
 
 # Fallback : créer un initramfs manquant kernel par kernel
@@ -1084,7 +1101,67 @@ for KVER in $(ls /lib/modules/ 2>/dev/null); do
   fi
 done
 
+# Supprimer les symlinks .old cassés — ils pointent vers un "ancien kernel"
+# qui n'existe pas dans un chroot frais. lb_chroot_hacks échoue dessus.
+echo ">>> Suppression symlinks .old cassés..."
+for f in /boot/initrd.img.old /boot/vmlinuz.old; do
+  if [ -L "$f" ] && [ ! -e "$f" ]; then
+    echo "    rm $f (dangling)"
+    rm -f "$f"
+  fi
+done
+
 echo ">>> Initramfs OK"
+HOOKEOF
+
+# ── GRUB EFI + BIOS (bootable sur vrai PC) ──────────────────
+cat > config/hooks/live/0850-grub.hook.chroot << 'HOOKEOF'
+#!/bin/bash
+export DEBIAN_FRONTEND=noninteractive
+echo ">>> Config GRUB EFI/BIOS..."
+
+# Config GRUB principale
+mkdir -p /boot/grub
+cat > /etc/default/grub << 'EOF'
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=5
+GRUB_TIMEOUT_STYLE=menu
+GRUB_DISTRIBUTOR="MineOS Gaming"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash boot=live components hostname=mineos username=user"
+GRUB_CMDLINE_LINUX=""
+GRUB_TERMINAL_OUTPUT="gfxterm"
+GRUB_GFXMODE="1920x1080,1280x720,auto"
+GRUB_GFXPAYLOAD_LINUX="keep"
+GRUB_DISABLE_OS_PROBER=true
+EOF
+
+# grub.cfg pour le live (sera aussi dans binary/boot/grub/ du squashfs)
+cat > /boot/grub/grub.cfg << 'EOF'
+set default=0
+set timeout=5
+set gfxmode=1920x1080,1280x720,auto
+set gfxpayload=keep
+insmod all_video
+insmod gfxterm
+insmod png
+terminal_output gfxterm
+
+menuentry "⛏ MineOS Gaming (Live)" --class ubuntu --class gnu-linux {
+  linux  /live/vmlinuz boot=live components quiet splash hostname=mineos username=user
+  initrd /live/initrd.img
+}
+
+menuentry "⛏ MineOS Gaming (failsafe)" --class ubuntu {
+  linux  /live/vmlinuz boot=live components nomodeset hostname=mineos username=user
+  initrd /live/initrd.img
+}
+
+menuentry "Démarrer depuis le disque dur" --class hdd {
+  chainloader +1
+}
+EOF
+
+echo ">>> GRUB OK"
 HOOKEOF
 
 chmod +x config/hooks/live/*.hook.chroot
