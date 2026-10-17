@@ -52,12 +52,41 @@ MOUNT_ISO="$WORK_DIR/iso-mount"
 mkdir -p "$MOUNT_ISO"
 mount -o loop,ro "$ISO_CACHE" "$MOUNT_ISO"
 
-# Copier le contenu de l'ISO (boot, EFI, etc.)
-rsync -a --exclude=casper/filesystem.squashfs "$MOUNT_ISO/" "$WORK_DIR/iso-new/"
+# Détecter le chemin du squashfs (varie selon la version/variante Ubuntu)
+log "  Détection du squashfs dans l'ISO..."
+SQUASHFS_PATH=""
+for CANDIDATE in \
+    "casper/filesystem.squashfs" \
+    "casper/ubuntu-server-minimal.squashfs" \
+    "casper/minimal.squashfs" \
+    "live/filesystem.squashfs" \
+    "install/filesystem.squashfs"; do
+    if [ -f "$MOUNT_ISO/$CANDIDATE" ]; then
+        SQUASHFS_PATH="$CANDIDATE"
+        log "  squashfs trouvé : $CANDIDATE"
+        break
+    fi
+done
+
+if [ -z "$SQUASHFS_PATH" ]; then
+    # Recherche exhaustive en fallback
+    SQUASHFS_FOUND=$(find "$MOUNT_ISO" -name "*.squashfs" 2>/dev/null | head -1)
+    if [ -n "$SQUASHFS_FOUND" ]; then
+        SQUASHFS_PATH="${SQUASHFS_FOUND#$MOUNT_ISO/}"
+        log "  squashfs détecté (fallback) : $SQUASHFS_PATH"
+    else
+        log "  Contenu de l'ISO :"
+        find "$MOUNT_ISO" -maxdepth 3 | head -40
+        die "Aucun fichier .squashfs trouvé dans l'ISO"
+    fi
+fi
+
+# Copier le contenu de l'ISO (boot, EFI, etc.) en excluant le squashfs source
+rsync -a --exclude="$SQUASHFS_PATH" "$MOUNT_ISO/" "$WORK_DIR/iso-new/"
 
 # Extraire le squashfs Ubuntu dans notre chroot
 log "  Extraction squashfs Ubuntu (peut prendre 5-10 min)..."
-unsquashfs -f -d "$WORK_DIR/squashfs-root" "$MOUNT_ISO/casper/filesystem.squashfs"
+unsquashfs -f -d "$WORK_DIR/squashfs-root" "$MOUNT_ISO/$SQUASHFS_PATH"
 
 umount "$MOUNT_ISO"
 rmdir  "$MOUNT_ISO"
