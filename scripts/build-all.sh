@@ -1084,28 +1084,36 @@ HOOKEOF
 # Fix : flush des triggers dpkg + génération initramfs + suppression des .old.
 cat > config/hooks/live/0800-initramfs.hook.chroot << 'HOOKEOF'
 #!/bin/bash
+# Pourquoi ce hook existe :
+#   update-initramfs est "deferred" par dpkg et ne crée jamais les fichiers
+#   initrd.img-<kver> dans un chroot live-build. Les symlinks /boot/initrd.img
+#   et /boot/initrd.img.old restent cassés. lb_chroot_hacks tente un chmod
+#   dessus et plante (exit 123).
+#
+# Fix : mkinitramfs DIRECTEMENT (contourne le système de triggers dpkg),
+#       puis suppression des symlinks .old qui n'ont aucun sens dans un chroot frais.
+
 export DEBIAN_FRONTEND=noninteractive
 
-echo ">>> Flush triggers dpkg (dont update-initramfs différé)..."
-dpkg --configure -a 2>/dev/null || true
-
-echo ">>> Génération initramfs pour tous les kernels présents..."
-update-initramfs -u -k all 2>/dev/null || true
-
-# Fallback : créer un initramfs manquant kernel par kernel
-for KVER in $(ls /lib/modules/ 2>/dev/null); do
-  if [ ! -f "/boot/initrd.img-${KVER}" ]; then
-    echo ">>> Création initramfs pour $KVER..."
-    update-initramfs -c -k "$KVER" 2>/dev/null || true
+for KVER in $(ls /lib/modules/ 2>/dev/null | sort); do
+  OUT="/boot/initrd.img-${KVER}"
+  if [ ! -f "$OUT" ]; then
+    echo ">>> mkinitramfs $KVER -> $OUT"
+    mkinitramfs -o "$OUT" "$KVER" 2>/dev/null \
+      || update-initramfs -c -k "$KVER" 2>/dev/null \
+      || { echo "WARN: initramfs non généré pour $KVER"; continue; }
+  fi
+  # Réparer le symlink principal s'il est cassé
+  if [ -L /boot/initrd.img ] && [ ! -e /boot/initrd.img ]; then
+    ln -sf "initrd.img-${KVER}" /boot/initrd.img
+    echo ">>> /boot/initrd.img -> initrd.img-${KVER}"
   fi
 done
 
-# Supprimer les symlinks .old cassés — ils pointent vers un "ancien kernel"
-# qui n'existe pas dans un chroot frais. lb_chroot_hacks échoue dessus.
-echo ">>> Suppression symlinks .old cassés..."
+# Supprimer les symlinks .old cassés (pas d'"ancien kernel" dans un chroot frais)
 for f in /boot/initrd.img.old /boot/vmlinuz.old; do
   if [ -L "$f" ] && [ ! -e "$f" ]; then
-    echo "    rm $f (dangling)"
+    echo ">>> rm dangling $f"
     rm -f "$f"
   fi
 done
