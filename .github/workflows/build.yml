@@ -11,6 +11,10 @@ on:
     tags:
       - 'v*'
 
+# BUG FIX : permissions write nécessaires pour créer une Release GitHub
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -21,15 +25,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set version
+      - name: Définir la version
         id: ver
         run: |
           V="${{ github.event.inputs.version || github.ref_name || '1.0.0' }}"
           V="${V#v}"
           echo "V=$V" >> $GITHUB_OUTPUT
-          echo "Building MineOS Gaming v$V (Ubuntu Jammy base)"
+          echo "Build MineOS Gaming v$V (base Ubuntu Jammy)"
 
-      - name: Install dependencies
+      - name: Installer les dépendances
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y \
@@ -37,39 +41,33 @@ jobs:
             grub-pc-bin grub-efi-amd64-bin mtools isolinux \
             syslinux-common rsync wget curl ca-certificates \
             imagemagick python3-pil ubuntu-keyring
-          echo "live-build: $(lb --version)"
+          echo "live-build : $(lb --version)"
 
-      - name: Patch lb_chroot_hacks (fix dangling initrd symlinks)
+      - name: Patcher lb_chroot_hacks (correction symlinks initrd cassés)
         run: |
           # Pourquoi : lb_chroot_hacks tente chmod sur chroot/boot/initrd.img et
           # chroot/boot/initrd.img.old, qui sont des symlinks cassés dans un chroot
           # live-build frais (update-initramfs est "deferred" et jamais flushé).
           # Résultat : chmod retourne une erreur → lb_chroot_hacks → exit 123.
-          # Fix : remplacer les conditions [ -L ... ] par [ -e ... ] dans le script,
-          # et ajouter || true sur les chmod directs, pour ignorer les symlinks cassés.
+          # Fix : -not -xtype l exclut les symlinks dont la cible n'existe pas.
 
-          # Localiser le script — live-build 3.x : "lb_chroot_hacks", 4.x+ : "chroot_hacks"
           HACKS=$(find /usr/lib/live /usr/share/live -name "lb_chroot_hacks" -o -name "chroot_hacks" 2>/dev/null | head -1)
           if [ -z "$HACKS" ]; then
-            # Dernier recours : chercher dans tout /usr/lib et /usr/share
             HACKS=$(find /usr/lib /usr/share -name "lb_chroot_hacks" -o -name "chroot_hacks" 2>/dev/null | head -1)
           fi
           if [ -z "$HACKS" ]; then
             echo "::warning::lb_chroot_hacks introuvable — patch ignoré"
-            # Lister ce qui existe dans live/build pour debug
             find /usr/lib/live /usr/share/live -type f 2>/dev/null | head -20 || true
             exit 0
           fi
           echo "Fichier trouvé : $HACKS"
 
-          # Afficher les lignes concernant initrd/vmlinuz AVANT patch (pour debug)
           echo "--- Avant patch ---"
           grep -n "initrd\|vmlinuz\|chmod" "$HACKS" | head -30 || true
 
           sudo python3 << 'PYEOF'
           import re, shutil, subprocess, sys, os
 
-          # Chercher lb_chroot_hacks (live-build 3.x) ET chroot_hacks (live-build 4.x+)
           r = subprocess.run(
               ['find', '/usr/lib/live', '/usr/share/live',
                '/usr/lib', '/usr/share',
@@ -86,28 +84,16 @@ jobs:
 
           original = text
 
-          # --- Patch principal (live-build 3.0~a57, Ubuntu 22.04) ---
-          # Ligne exacte dans lb_chroot_hacks (confirmée par debug) :
-          #   find chroot/boot -name 'initrd*' -print0 | xargs -r -0 chmod go+r
-          #
-          # find liste les symlinks cassés (initrd.img, initrd.img.old) car find
-          # ne dereference pas par défaut. xargs chmod go+r plante dessus → exit 123.
-          #
-          # Fix : -not -xtype l exclut les symlinks dont la cible n'existe pas.
-          # (-xtype l = "encore un symlink après dereference" = symlink cassé)
           OLD = "find chroot/boot -name 'initrd*' -print0 | xargs -r -0 chmod go+r"
           NEW = "find chroot/boot -name 'initrd*' -not -xtype l -print0 | xargs -r -0 chmod go+r  # patched"
           text = text.replace(OLD, NEW)
 
-          # --- Patches de sécurité (autres versions de live-build) ---
-          # Conditions [ -L ... ] → [ -e ... ] (symlink valide seulement)
           text = re.sub(
               r'\[ -[eL] (chroot/boot/(?:initrd[^ \]]*|vmlinuz[^ \]]*)) \]'
               r'(?:\s*\|\|\s*\[ -[eL] \1 \])?',
               r'[ -e \1 ]',
               text
           )
-          # chmod direct sur chroot/boot/initrd* → non-fatal
           text = re.sub(
               r'(chmod\s+\S+\s+chroot/boot/(?:initrd[^ \n]*|vmlinuz[^ \n]*))',
               r'\1 2>/dev/null || true  # patched',
@@ -127,14 +113,13 @@ jobs:
               print("✓ lb_chroot_hacks patché avec succès")
           PYEOF
 
-          # Afficher les lignes APRÈS patch
           echo "--- Après patch ---"
           grep -n "initrd\|vmlinuz\|chmod" "$HACKS" | head -30 || true
 
-      - name: Build ISO
+      - name: Compiler l'ISO
         run: sudo bash scripts/build-all.sh "${{ steps.ver.outputs.V }}"
 
-      - name: Copy ISO to workspace
+      - name: Copier l'ISO dans le workspace
         run: |
           mkdir -p build
           sudo cp /opt/mineos-output/*.iso build/ 2>/dev/null || true
@@ -142,7 +127,7 @@ jobs:
           sudo chown -R $USER:$USER build/
           ls -lh build/
 
-      - name: Get stats
+      - name: Statistiques
         id: stats
         run: |
           ISO=$(ls build/*.iso 2>/dev/null | head -1)
@@ -154,14 +139,14 @@ jobs:
             exit 1
           fi
 
-      - name: Upload artifact
+      - name: Uploader l'artifact
         uses: actions/upload-artifact@v4
         with:
           name: MineOS-Gaming-${{ steps.ver.outputs.V }}
           path: build/
           retention-days: 30
 
-      - name: Create Release
+      - name: Créer une Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
@@ -170,7 +155,7 @@ jobs:
             ## MineOS Gaming ${{ steps.ver.outputs.V }}
             **Base : Ubuntu 22.04 LTS (Jammy Jellyfish)**
             - Steam | Lutris | Wine + DXVK | GameMode | MangoHud
-            - GPU : NVIDIA / AMD / Intel auto-détecté
+            - GPU : NVIDIA / AMD / Intel — détection automatique au démarrage
             - Kernel Liquorix | swappiness=10 | audio low-latency
             - **Taille :** ${{ steps.stats.outputs.SIZE }}
             - **SHA256 :** `${{ steps.stats.outputs.SHA256 }}`
@@ -181,9 +166,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Summary
+      - name: Résumé
         run: |
-          echo "## MineOS Gaming Build OK (Ubuntu)" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ MineOS Gaming Build OK (Ubuntu)" >> $GITHUB_STEP_SUMMARY
           echo "| Version | ${{ steps.ver.outputs.V }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Base | Ubuntu 22.04 Jammy |" >> $GITHUB_STEP_SUMMARY
           echo "| Taille | ${{ steps.stats.outputs.SIZE }} |" >> $GITHUB_STEP_SUMMARY
