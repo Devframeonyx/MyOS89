@@ -1238,12 +1238,16 @@ echo "xz" > config/compression/filesystem
 echo "[6b/9] Patch lb_chroot_hacks (host)..."
 
 # Chercher lb_chroot_hacks dans les emplacements connus de live-build
+# live-build 3.x nomme les scripts "lb_chroot_hacks", live-build 4.x+ "chroot_hacks"
 LB_HACKS=""
 for candidate in \
+  /usr/lib/live/build/lb_chroot_hacks \
   /usr/lib/live/build/chroot_hacks \
+  /usr/share/live/build/lb_chroot_hacks \
   /usr/share/live/build/chroot_hacks \
   $(which lb_chroot_hacks 2>/dev/null) \
-  $(find /usr/lib /usr/share -name "chroot_hacks" 2>/dev/null | head -1)
+  $(find /usr/lib /usr/share -name "lb_chroot_hacks" 2>/dev/null | head -1) \
+  $(find /usr/lib /usr/share -name "chroot_hacks"    2>/dev/null | head -1)
 do
   if [ -f "$candidate" ]; then
     LB_HACKS="$candidate"
