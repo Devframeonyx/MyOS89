@@ -1,175 +1,179 @@
-name: Build MineOS Gaming ISO (Ubuntu)
+name: "⛏ MineOS Gaming ISO — Build v14"
 
+# ─── DÉCLENCHEURS ────────────────────────────────────────────────────────────
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (ex: 1.0.0)'
+        description: "Version (ex: 1.0.0)"
         required: false
-        default: '1.0.0'
+        default: "1.0.0"
   push:
     tags:
-      - 'v*'
+      - "v*"
 
-# BUG FIX : permissions write nécessaires pour créer une Release GitHub
+# Permissions write pour créer des Releases GitHub
 permissions:
   contents: write
 
 jobs:
   build:
+    name: "Build MineOS Gaming ${{ github.event.inputs.version || github.ref_name || '1.0.0' }}"
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     steps:
-
-      - name: Checkout
+      # ── 1. Checkout ─────────────────────────────────────────────────────
+      - name: "📥 Checkout"
         uses: actions/checkout@v4
 
-      - name: Définir la version
+      # ── 2. Version ──────────────────────────────────────────────────────
+      - name: "🏷️ Définir la version"
         id: ver
         run: |
           V="${{ github.event.inputs.version || github.ref_name || '1.0.0' }}"
           V="${V#v}"
           echo "V=$V" >> $GITHUB_OUTPUT
-          echo "Build MineOS Gaming v$V (base Ubuntu Jammy)"
+          echo "::notice::Build MineOS Gaming v$V"
 
-      - name: Installer les dépendances
+      # ── 3. Dépendances hôte ──────────────────────────────────────────────
+      - name: "📦 Installer les outils de build"
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y \
-            live-build debootstrap squashfs-tools xorriso \
-            grub-pc-bin grub-efi-amd64-bin mtools isolinux \
-            syslinux-common rsync wget curl ca-certificates \
-            imagemagick python3-pil ubuntu-keyring
-          echo "live-build : $(lb --version)"
+            squashfs-tools unsquashfs \
+            xorriso isolinux syslinux-common \
+            grub-pc-bin grub-efi-amd64-bin grub-efi-amd64 \
+            shim-signed mtools efibootmgr \
+            debootstrap rsync wget curl ca-certificates \
+            imagemagick python3-pil \
+            dosfstools genisoimage
+          
+          echo "=== Versions des outils ==="
+          xorriso --version 2>&1 | head -1
+          mksquashfs -version 2>&1 | head -1
+          grub-mkimage --version 2>&1 | head -1
 
-      - name: Patcher lb_chroot_hacks (correction symlinks initrd cassés)
+      # ── 4. Cache ISO Ubuntu ──────────────────────────────────────────────
+      - name: "💾 Cache ISO Ubuntu 22.04"
+        id: cache-iso
+        uses: actions/cache@v4
+        with:
+          path: /opt/mineos-cache
+          key: ubuntu-22.04-server-iso-v1
+
+      # ── 5. Build ─────────────────────────────────────────────────────────
+      - name: "🔨 Build MineOS Gaming v${{ steps.ver.outputs.V }}"
         run: |
-          # Pourquoi : lb_chroot_hacks tente chmod sur chroot/boot/initrd.img et
-          # chroot/boot/initrd.img.old, qui sont des symlinks cassés dans un chroot
-          # live-build frais (update-initramfs est "deferred" et jamais flushé).
-          # Résultat : chmod retourne une erreur → lb_chroot_hacks → exit 123.
-          # Fix : -not -xtype l exclut les symlinks dont la cible n'existe pas.
+          chmod +x scripts/*.sh
+          sudo bash scripts/build.sh "${{ steps.ver.outputs.V }}"
 
-          HACKS=$(find /usr/lib/live /usr/share/live -name "lb_chroot_hacks" -o -name "chroot_hacks" 2>/dev/null | head -1)
-          if [ -z "$HACKS" ]; then
-            HACKS=$(find /usr/lib /usr/share -name "lb_chroot_hacks" -o -name "chroot_hacks" 2>/dev/null | head -1)
-          fi
-          if [ -z "$HACKS" ]; then
-            echo "::warning::lb_chroot_hacks introuvable — patch ignoré"
-            find /usr/lib/live /usr/share/live -type f 2>/dev/null | head -20 || true
-            exit 0
-          fi
-          echo "Fichier trouvé : $HACKS"
-
-          echo "--- Avant patch ---"
-          grep -n "initrd\|vmlinuz\|chmod" "$HACKS" | head -30 || true
-
-          sudo python3 << 'PYEOF'
-          import re, shutil, subprocess, sys, os
-
-          r = subprocess.run(
-              ['find', '/usr/lib/live', '/usr/share/live',
-               '/usr/lib', '/usr/share',
-               '(', '-name', 'lb_chroot_hacks', '-o', '-name', 'chroot_hacks', ')'],
-              capture_output=True, text=True)
-          path = next((p for p in r.stdout.strip().split('\n') if p and os.path.isfile(p)), None)
-          if not path:
-              print("lb_chroot_hacks introuvable")
-              sys.exit(0)
-
-          shutil.copy(path, path + '.orig')
-          with open(path) as f:
-              text = f.read()
-
-          original = text
-
-          OLD = "find chroot/boot -name 'initrd*' -print0 | xargs -r -0 chmod go+r"
-          NEW = "find chroot/boot -name 'initrd*' -not -xtype l -print0 | xargs -r -0 chmod go+r  # patched"
-          text = text.replace(OLD, NEW)
-
-          text = re.sub(
-              r'\[ -[eL] (chroot/boot/(?:initrd[^ \]]*|vmlinuz[^ \]]*)) \]'
-              r'(?:\s*\|\|\s*\[ -[eL] \1 \])?',
-              r'[ -e \1 ]',
-              text
-          )
-          text = re.sub(
-              r'(chmod\s+\S+\s+chroot/boot/(?:initrd[^ \n]*|vmlinuz[^ \n]*))',
-              r'\1 2>/dev/null || true  # patched',
-              text
-          )
-
-          if text == original:
-              print("::warning:: Aucune modification appliquée — vérifier le format du fichier")
-              print("Lignes chmod/initrd/vmlinuz présentes :")
-              for i, line in enumerate(original.split('\n'), 1):
-                  if re.search(r'chmod|initrd|vmlinuz', line):
-                      print(f"  {i:4d}: {line}")
-          else:
-              with open(path, 'w') as f:
-                  f.write(text)
-              subprocess.run(['diff', path + '.orig', path])
-              print("✓ lb_chroot_hacks patché avec succès")
-          PYEOF
-
-          echo "--- Après patch ---"
-          grep -n "initrd\|vmlinuz\|chmod" "$HACKS" | head -30 || true
-
-      - name: Compiler l'ISO
-        run: sudo bash scripts/build-all.sh "${{ steps.ver.outputs.V }}"
-
-      - name: Copier l'ISO dans le workspace
+      # ── 6. Vérification ISO ──────────────────────────────────────────────
+      - name: "✅ Vérification ISO"
+        id: iso
         run: |
-          mkdir -p build
-          sudo cp /opt/mineos-output/*.iso build/ 2>/dev/null || true
-          sudo cp /opt/mineos-output/SHA256SUMS build/ 2>/dev/null || true
-          sudo chown -R $USER:$USER build/
-          ls -lh build/
-
-      - name: Statistiques
-        id: stats
-        run: |
-          ISO=$(ls build/*.iso 2>/dev/null | head -1)
-          if [ -n "$ISO" ]; then
-            echo "SIZE=$(du -sh $ISO | cut -f1)" >> $GITHUB_OUTPUT
-            echo "SHA256=$(sha256sum $ISO | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          else
-            echo "ISO manquant"
+          ISO=$(ls /opt/mineos-output/*.iso 2>/dev/null | head -1)
+          if [ -z "$ISO" ]; then
+            echo "::error::ISO introuvable dans /opt/mineos-output/"
+            ls -la /opt/mineos-output/ || true
             exit 1
           fi
+          SIZE=$(du -sh "$ISO" | cut -f1)
+          SHA=$(sha256sum "$ISO" | cut -d' ' -f1)
+          echo "ISO=$ISO"           >> $GITHUB_OUTPUT
+          echo "SIZE=$SIZE"         >> $GITHUB_OUTPUT
+          echo "SHA256=$SHA"        >> $GITHUB_OUTPUT
+          echo "BASENAME=$(basename $ISO)" >> $GITHUB_OUTPUT
+          echo "::notice::✅ ISO générée : $(basename $ISO) — $SIZE"
 
-      - name: Uploader l'artifact
+      # ── 7. Copier vers workspace ─────────────────────────────────────────
+      - name: "📁 Copier l'ISO dans le workspace"
+        run: |
+          mkdir -p build
+          sudo cp /opt/mineos-output/*.iso    build/ 2>/dev/null || true
+          sudo cp /opt/mineos-output/SHA256SUMS build/ 2>/dev/null || true
+          sudo chown -R "$USER:$USER" build/
+          ls -lh build/
+
+      # ── 8. Upload artifact ───────────────────────────────────────────────
+      - name: "⬆️ Upload artifact"
         uses: actions/upload-artifact@v4
         with:
-          name: MineOS-Gaming-${{ steps.ver.outputs.V }}
+          name: "MineOS-Gaming-${{ steps.ver.outputs.V }}"
           path: build/
           retention-days: 30
 
-      - name: Créer une Release
+      # ── 9. GitHub Release (sur tag seulement) ───────────────────────────
+      - name: "🚀 Créer une Release GitHub"
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
-          name: "MineOS Gaming ${{ steps.ver.outputs.V }}"
+          name: "⛏ MineOS Gaming ${{ steps.ver.outputs.V }}"
           body: |
-            ## MineOS Gaming ${{ steps.ver.outputs.V }}
-            **Base : Ubuntu 22.04 LTS (Jammy Jellyfish)**
-            - Steam | Lutris | Wine + DXVK | GameMode | MangoHud
-            - GPU : NVIDIA / AMD / Intel — détection automatique au démarrage
-            - Kernel Liquorix | swappiness=10 | audio low-latency
-            - **Taille :** ${{ steps.stats.outputs.SIZE }}
-            - **SHA256 :** `${{ steps.stats.outputs.SHA256 }}`
+            ## ⛏ MineOS Gaming ${{ steps.ver.outputs.V }}
+            
+            **Base :** Ubuntu 22.04 LTS (Jammy Jellyfish)  
+            **Build :** approche chroot direct (sans live-build)
+            
+            ### 🎮 Ce qui est inclus
+            - **Steam** + **Lutris** + **Heroic Games** (Epic/GOG)
+            - **Wine** + **DXVK** (DirectX → Vulkan) + **Bottles**
+            - **GameMode** + **MangoHud** (overlay FPS)
+            - **Kernel Liquorix** (si dispo) — optimisé gaming
+            - **GPU auto-détecté** au démarrage (NVIDIA / AMD / Intel)
+            - **Opera GX** (ou Chromium en fallback)
+            - **MineOS Store** — installer apps Linux + Windows en 2 clics
+            - **Discord, Spotify, OBS** via Flatpak
+            - **XFCE** + thème **MineOS Dark** + icônes Papirus
+            
+            ### 📊 Build info
+            | Attribut | Valeur |
+            |----------|--------|
+            | Version  | ${{ steps.ver.outputs.V }} |
+            | Taille   | ${{ steps.iso.outputs.SIZE }} |
+            | SHA256   | `${{ steps.iso.outputs.SHA256 }}` |
+            
+            ### 💾 Flash USB
             ```bash
-            sudo dd if=MineOS-Gaming-${{ steps.ver.outputs.V }}-x86_64.iso of=/dev/sdX bs=4M status=progress
+            # Linux
+            sudo dd if=${{ steps.iso.outputs.BASENAME }} of=/dev/sdX bs=4M status=progress oflag=sync
+            
+            # Ou avec Balena Etcher (Windows/macOS/Linux)
+            # https://www.balena.io/etcher/
             ```
+            
+            ### ✅ Booter
+            1. Redémarrer → F2/F8/F12 → Sélectionner la clé USB
+            2. "MineOS Gaming (Live)" → démarrage direct
+            3. "mode sans échec" si problème de GPU
           files: build/*
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Résumé
+      # ── 10. Résumé ───────────────────────────────────────────────────────
+      - name: "📊 Résumé du build"
         run: |
-          echo "## ✅ MineOS Gaming Build OK (Ubuntu)" >> $GITHUB_STEP_SUMMARY
-          echo "| Version | ${{ steps.ver.outputs.V }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Base | Ubuntu 22.04 Jammy |" >> $GITHUB_STEP_SUMMARY
-          echo "| Taille | ${{ steps.stats.outputs.SIZE }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| SHA256 | \`${{ steps.stats.outputs.SHA256 }}\` |" >> $GITHUB_STEP_SUMMARY
+          cat >> $GITHUB_STEP_SUMMARY << SUMMARY
+          ## ✅ MineOS Gaming v${{ steps.ver.outputs.V }} — Build réussi !
+          
+          | Attribut | Valeur |
+          |----------|--------|
+          | Version  | \`${{ steps.ver.outputs.V }}\` |
+          | Base     | Ubuntu 22.04 LTS Jammy |
+          | Méthode  | chroot direct (sans live-build) |
+          | Taille   | ${{ steps.iso.outputs.SIZE }} |
+          | SHA256   | \`${{ steps.iso.outputs.SHA256 }}\` |
+          
+          ### 🎮 Contenu
+          - Steam · Lutris · Heroic · Wine + DXVK · GameMode · MangoHud
+          - GPU : NVIDIA / AMD / Intel — détection automatique au démarrage
+          - Kernel Liquorix · PulseAudio low-latency · sysctl gaming
+          - MineOS Store · Opera GX · Discord · Spotify · OBS
+          
+          ### 💾 Flash USB
+          \`\`\`bash
+          sudo dd if=${{ steps.iso.outputs.BASENAME }} of=/dev/sdX bs=4M status=progress oflag=sync
+          \`\`\`
+          SUMMARY
