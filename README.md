@@ -1,4 +1,4 @@
-# ⛏ MineOS Gaming Edition — v14
+# ⛏ MineOS Gaming Edition — v13
 
 > **Distribution Linux gaming clé en main**, basée sur Ubuntu 22.04 LTS  
 > Build par **chroot direct** — plus de `live-build`, plus de bug initrd depuis la v6
@@ -100,54 +100,16 @@ sudo dd if=MineOS-Gaming-1.0.0-x86_64.iso of=/dev/sdX bs=4M status=progress ofla
 
 ---
 
-## ⚡ Système de patch automatique (.MineOSUp)
-
-MineOS v14 intègre un **Update Watcher** — comme Windows Update, mais en mieux.
-
-**Comment ça marche :**
-1. Dépose un fichier `.MineOSUp` dans `/opt/mineos-updates/`
-2. Le daemon le détecte instantanément
-3. Il l'exécute automatiquement
-4. Il le supprime après application
-5. Redémarre si le patch le demande (`exit 42`)
-
-**Créer un patch :**
-```bash
-cp updater/patches/MineOS-Update-NewBar.MineOSUp mon-patch.MineOSUp
-# Modifie le contenu, puis dépose dans /opt/mineos-updates/
-```
-
-**Suivre les logs :**
-```bash
-tail -f /var/log/mineos-watcher.log
-journalctl -u mineos-update-watcher -f
-```
-
----
-
 ## 🗂️ Structure du projet
 
 ```
-mineos-v14/
+mineos-v13/
 ├── .github/workflows/
-│   └── build.yml              # CI/CD GitHub Actions
-├── scripts/
-│   ├── build.sh               # Script principal (étapes 1-10)
-│   ├── configure-chroot.sh    # Config MineOS dans le chroot
-│   └── build-iso.sh           # Génération ISO avec xorriso
-├── installer/
-│   ├── install-core.sh        # Installeur système
-│   ├── mineos-install.sh      # Script d'entrée installeur
-│   └── mineos-installer.html  # Interface web installeur
-└── updater/
-    ├── MineOS-Update.sh        # Gestionnaire de mises à jour interactif
-    ├── MineOS-Update.desktop   # Raccourci bureau
-    ├── watcher/
-    │   ├── mineos-watcher.sh              # Daemon de surveillance .MineOSUp
-    │   ├── mineos-update-watcher.service  # Service systemd
-    │   └── install-watcher.sh            # Installation manuelle du watcher
-    └── patches/
-        └── MineOS-Update-NewBar.MineOSUp  # Patch exemple — nouvelle barre
+│   └── build.yml          # CI/CD GitHub Actions
+└── scripts/
+    ├── build.sh           # Script principal (étapes 1-10)
+    ├── configure-chroot.sh # Config MineOS dans le chroot
+    └── build-iso.sh       # Génération ISO avec xorriso
 ```
 
 ---
