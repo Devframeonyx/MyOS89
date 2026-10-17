@@ -1102,16 +1102,31 @@ cat > config/hooks/live/0800-initramfs.hook.chroot << 'HOOKEOF'
 #
 # Fix : mkinitramfs DIRECTEMENT (contourne le système de triggers dpkg),
 #       puis suppression des symlinks .old qui n'ont aucun sens dans un chroot frais.
+#
+# NOTE : lb_chroot_hacks est aussi patché sur le host (étape 6b du script parent)
+#        pour que même si ce hook échoue, le chmod ne bloque pas le build.
 
 export DEBIAN_FRONTEND=noninteractive
+
+echo ">>> Modules disponibles :"
+ls /lib/modules/ 2>/dev/null || echo "(aucun)"
 
 for KVER in $(ls /lib/modules/ 2>/dev/null | sort); do
   OUT="/boot/initrd.img-${KVER}"
   if [ ! -f "$OUT" ]; then
     echo ">>> mkinitramfs $KVER -> $OUT"
-    mkinitramfs -o "$OUT" "$KVER" 2>/dev/null \
-      || update-initramfs -c -k "$KVER" 2>/dev/null \
-      || { echo "WARN: initramfs non généré pour $KVER"; continue; }
+    # Flush les triggers dpkg en attente avant mkinitramfs
+    dpkg --configure -a 2>/dev/null || true
+    if mkinitramfs -o "$OUT" "$KVER"; then
+      echo ">>> mkinitramfs OK : $OUT"
+    elif update-initramfs -c -k "$KVER"; then
+      echo ">>> update-initramfs OK : $OUT"
+    else
+      echo "WARN: initramfs non généré pour $KVER — le patch lb_chroot_hacks (étape 6b) prendra le relais"
+      continue
+    fi
+  else
+    echo ">>> $OUT existe déjà"
   fi
   # Réparer le symlink principal s'il est cassé
   if [ -L /boot/initrd.img ] && [ ! -e /boot/initrd.img ]; then
@@ -1208,6 +1223,73 @@ chmod +x config/includes.chroot/usr/local/bin/mineos-exe
 echo "[6/9] Compression xz..."
 mkdir -p config/compression
 echo "xz" > config/compression/filesystem
+
+# ─────────────────────────────────────────────
+# ÉTAPE 6b : Patch lb_chroot_hacks sur le HOST
+# ─────────────────────────────────────────────
+# Pourquoi : live-build exécute lb_chroot_hacks DANS le répertoire de build,
+# avec des chemins comme "chroot/boot/initrd.img". Si ce symlink est cassé
+# (update-initramfs différé, pas de fichier initrd.img-<kver> cible), chmod
+# retourne une erreur. Le hook 0800 tente de corriger ça depuis l'intérieur du
+# chroot, mais peut échouer si l'environnement chroot est contraint à ce stade.
+# Ce patch ajoute une garde [ -e ... ] avant chaque chmod dans lb_chroot_hacks,
+# rendant le script tolérant aux symlinks cassés — sans jamais modifier le comportement
+# sur des installations normales.
+echo "[6b/9] Patch lb_chroot_hacks (host)..."
+
+# Chercher lb_chroot_hacks dans les emplacements connus de live-build
+LB_HACKS=""
+for candidate in \
+  /usr/lib/live/build/chroot_hacks \
+  /usr/share/live/build/chroot_hacks \
+  $(which lb_chroot_hacks 2>/dev/null) \
+  $(find /usr/lib /usr/share -name "chroot_hacks" 2>/dev/null | head -1)
+do
+  if [ -f "$candidate" ]; then
+    LB_HACKS="$candidate"
+    break
+  fi
+done
+
+if [ -z "$LB_HACKS" ]; then
+  echo "WARN : lb_chroot_hacks introuvable sur ce système — patch ignoré"
+  echo "       (le hook 0800-initramfs doit suffire)"
+else
+  echo ">>> Fichier trouvé : $LB_HACKS"
+  # Sauvegarder l'original (idempotent : ne pas écraser si déjà patché)
+  if [ ! -f "${LB_HACKS}.orig" ]; then
+    cp "$LB_HACKS" "${LB_HACKS}.orig"
+    echo ">>> Backup : ${LB_HACKS}.orig"
+  fi
+
+  # Patch 1 : chmod sur initrd.img      (symlink principal)
+  # Avant : chmod 600 chroot/boot/initrd.img
+  # Après : [ -e chroot/boot/initrd.img ] && chmod 600 chroot/boot/initrd.img
+  sed -i \
+    's|^\(\s*\)chmod \([0-9]*\) \(chroot/boot/initrd\.img\)\s*$|\1[ -e \3 ] \&\& chmod \2 \3|' \
+    "$LB_HACKS"
+
+  # Patch 2 : chmod sur initrd.img.old  (symlink "ancien kernel", absent dans un chroot frais)
+  sed -i \
+    's|^\(\s*\)chmod \([0-9]*\) \(chroot/boot/initrd\.img\.old\)\s*$|\1[ -e \3 ] \&\& chmod \2 \3|' \
+    "$LB_HACKS"
+
+  # Patch 3 : chmod sur vmlinuz.old     (même problème, même fix)
+  sed -i \
+    's|^\(\s*\)chmod \([0-9]*\) \(chroot/boot/vmlinuz\.old\)\s*$|\1[ -e \3 ] \&\& chmod \2 \3|' \
+    "$LB_HACKS"
+
+  # Vérifier que le patch a modifié quelque chose (ou que le fichier était déjà patché)
+  if diff -q "${LB_HACKS}.orig" "$LB_HACKS" > /dev/null 2>&1; then
+    echo ">>> Aucune modification — soit déjà patché, soit les lignes n'ont pas le format attendu"
+    echo ">>> Vérification manuelle :"
+    grep -n "initrd.img\|vmlinuz.old" "$LB_HACKS" | head -10 || true
+  else
+    echo ">>> lb_chroot_hacks patché avec succès"
+    echo ">>> Diff :"
+    diff "${LB_HACKS}.orig" "$LB_HACKS" || true
+  fi
+fi
 
 # ─────────────────────────────────────────────
 # ÉTAPE 7 : lb build
