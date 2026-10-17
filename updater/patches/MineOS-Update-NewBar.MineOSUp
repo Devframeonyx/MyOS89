@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  ⛏  MineOS Patch — Nouvelle barre des tâches (NewBar)                   ║
+# ║                                                                           ║
+# ║  ID      : new-taskbar-v2                                                ║
+# ║  Version : 2.0.0                                                         ║
+# ║  Reboot  : non                                                            ║
+# ║                                                                           ║
+# ║  Ce fichier est un patch MineOS (.MineOSUp).                             ║
+# ║  → Dépose-le dans /opt/mineos-updates/ pour l'appliquer automatiquement. ║
+# ║  → Il sera exécuté puis supprimé par le watcher.                         ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+#
+#  Codes de sortie attendus par le watcher :
+#    exit 0   → Succès, pas de reboot
+#    exit 42  → Succès, reboot automatique requis
+#    exit 1   → Échec (le watcher logge l'erreur)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -e
+
+# ── Métadonnées du patch (lues par le watcher pour le log) ───────────────────
+PATCH_ID="new-taskbar-v2"
+PATCH_NAME="Nouvelle barre des tâches MineOS v2"
+PATCH_VERSION="2.0.0"
+PATCH_REBOOT="false"
+
+# ── Couleurs ──────────────────────────────────────────────────────────────────
+GRN='\033[1;32m'; CYN='\033[1;36m'; YLW='\033[1;33m'
+RED='\033[1;31m'; RST='\033[0m'; BLD='\033[1m'
+
+log()    { echo -e "${GRN}  [PATCH]${RST} $*"; }
+log_ok() { echo -e "${GRN}  ✅ $*${RST}"; }
+warn()   { echo -e "${YLW}  ⚠️  $*${RST}"; }
+section(){ echo -e "\n${CYN}${BLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RST}"; }
+
+echo ""
+section "Patch : $PATCH_NAME (v$PATCH_VERSION)"
+log "ID        : $PATCH_ID"
+log "Reboot    : $PATCH_REBOOT"
+log "Timestamp : $(date '+%Y-%m-%d %H:%M:%S')"
+echo ""
+
+# ── Marquer comme installé dans le tracker MineOS ────────────────────────────
+INSTALLED_FILE="/etc/mineos-installed-updates"
+if ! grep -q "^new-taskbar$" "$INSTALLED_FILE" 2>/dev/null; then
+    echo "new-taskbar" >> "$INSTALLED_FILE" 2>/dev/null || true
+fi
+echo "$PATCH_ID" >> "$INSTALLED_FILE" 2>/dev/null || true
+
+# ════════════════════════════════════════════════════════════════════════════════
+# CONTENU DU PATCH — Nouvelle barre des tâches XFCE
+# ════════════════════════════════════════════════════════════════════════════════
+
+section "Application de la nouvelle barre des tâches"
+
+# ── Sauvegarde de l'ancienne config ──────────────────────────────────────────
+log "Sauvegarde de la config XFCE actuelle..."
+BACKUP_DIR="/var/lib/mineos-updates/backups/${PATCH_ID}_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+for XFCE_USER_HOME in /home/*/; do
+    XFCE_CONF="$XFCE_USER_HOME/.config/xfce4/xfconf/xfce-perchannel-xml"
+    if [ -f "$XFCE_CONF/xfce4-panel.xml" ]; then
+        USER_NAME=$(basename "$XFCE_USER_HOME")
+        cp "$XFCE_CONF/xfce4-panel.xml" "$BACKUP_DIR/xfce4-panel_${USER_NAME}.xml.bak"
+        log "Backup : $USER_NAME → $BACKUP_DIR"
+    fi
+done
+log_ok "Sauvegarde effectuée dans $BACKUP_DIR"
+
+# ── Installer les plugins XFCE nécessaires ────────────────────────────────────
+log "Installation des plugins de panel..."
+apt-get install -y -qq \
+    xfce4-whiskermenu-plugin \
+    xfce4-pulseaudio-plugin \
+    xfce4-power-manager \
+    xfce4-places-plugin 2>/dev/null || warn "Certains plugins déjà présents"
+log_ok "Plugins installés"
+
+# ── Générer la nouvelle config panel pour chaque utilisateur ─────────────────
+section "Application de la config barre des tâches"
+
+apply_panel_config() {
+    local USER_HOME="$1"
+    local USERNAME
+    USERNAME=$(basename "$USER_HOME")
+
+    local PANEL_DIR="$USER_HOME/.config/xfce4/xfconf/xfce-perchannel-xml"
+    mkdir -p "$PANEL_DIR"
+
+    cat > "$PANEL_DIR/xfce4-panel.xml" << 'PANELEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-panel" version="1.0">
+  <property name="configver" type="int" value="2"/>
+  <property name="panels" type="array">
+    <value type="int" value="1"/>
+  </property>
+  <property name="panel-1" type="empty">
+    <property name="position"         type="string" value="p=8;x=0;y=0"/>
+    <property name="length"           type="uint"   value="100"/>
+    <property name="position-locked"  type="bool"   value="true"/>
+    <property name="size"             type="uint"   value="42"/>
+    <property name="background-style" type="uint"   value="1"/>
+    <property name="background-rgba"  type="array">
+      <value type="double" value="0.04"/>
+      <value type="double" value="0.04"/>
+      <value type="double" value="0.10"/>
+      <value type="double" value="0.95"/>
+    </property>
+    <property name="icon-size"        type="uint"   value="24"/>
+    <property name="plugin-ids" type="array">
+      <value type="int" value="1"/>
+      <value type="int" value="2"/>
+      <value type="int" value="3"/>
+      <value type="int" value="4"/>
+      <value type="int" value="5"/>
+      <value type="int" value="6"/>
+      <value type="int" value="7"/>
+      <value type="int" value="8"/>
+      <value type="int" value="9"/>
+      <value type="int" value="10"/>
+      <value type="int" value="11"/>
+    </property>
+  </property>
+  <property name="plugins" type="empty">
+    <!-- Menu principal Whisker -->
+    <property name="plugin-1" type="string" value="whiskermenu"/>
+    <!-- Séparateur visuel -->
+    <property name="plugin-2" type="string" value="separator">
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <!-- Lanceur Steam -->
+    <property name="plugin-3" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="steam.desktop"/>
+      </property>
+    </property>
+    <!-- Lanceur Lutris -->
+    <property name="plugin-4" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="net.lutris.Lutris.desktop"/>
+      </property>
+    </property>
+    <!-- Lanceur Heroic (si installé) -->
+    <property name="plugin-5" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="com.heroicgameslauncher.hgl.desktop"/>
+      </property>
+    </property>
+    <!-- Séparateur -->
+    <property name="plugin-6" type="string" value="separator">
+      <property name="style" type="uint" value="1"/>
+    </property>
+    <!-- Liste des fenêtres ouvertes -->
+    <property name="plugin-7" type="string" value="tasklist">
+      <property name="show-labels"    type="bool" value="true"/>
+      <property name="show-tooltips"  type="bool" value="true"/>
+      <property name="grouping"       type="uint" value="1"/>
+    </property>
+    <!-- Séparateur expansible (pousse les éléments suivants à droite) -->
+    <property name="plugin-8" type="string" value="separator">
+      <property name="expand" type="bool"  value="true"/>
+      <property name="style"  type="uint"  value="0"/>
+    </property>
+    <!-- Barre systray (icônes réseau, discord, etc.) -->
+    <property name="plugin-9" type="string" value="systray">
+      <property name="show-frame"      type="bool" value="false"/>
+      <property name="square-icons"    type="bool" value="true"/>
+    </property>
+    <!-- Volume audio -->
+    <property name="plugin-10" type="string" value="pulseaudio">
+      <property name="enable-keyboard-shortcuts" type="bool" value="true"/>
+      <property name="show-notifications"        type="bool" value="true"/>
+    </property>
+    <!-- Horloge -->
+    <property name="plugin-11" type="string" value="clock">
+      <property name="digital-format"    type="string" value="%H:%M  %d/%m"/>
+      <property name="show-frame"        type="bool"   value="false"/>
+    </property>
+  </property>
+</channel>
+PANELEOF
+
+    chown -R "$USERNAME:$USERNAME" "$PANEL_DIR" 2>/dev/null || true
+    log_ok "Config panel appliquée pour : $USERNAME"
+}
+
+# Appliquer pour tous les utilisateurs humains
+for USER_HOME in /home/*/; do
+    if [ -d "$USER_HOME" ]; then
+        apply_panel_config "$USER_HOME"
+    fi
+done
+
+# ── Redémarrer le panel XFCE pour les sessions actives ───────────────────────
+section "Rechargement du panel XFCE"
+
+for XFCE_PID in $(pgrep xfce4-panel 2>/dev/null); do
+    PANEL_USER=$(ps -o user= -p "$XFCE_PID" 2>/dev/null | tr -d ' ')
+    if [ -n "$PANEL_USER" ]; then
+        log "Rechargement du panel pour : $PANEL_USER"
+        sudo -u "$PANEL_USER" \
+            DISPLAY=:0 \
+            xfce4-panel --restart 2>/dev/null || true
+        log_ok "Panel rechargé pour $PANEL_USER"
+    fi
+done
+
+# ════════════════════════════════════════════════════════════════════════════════
+echo ""
+log_ok "Patch '$PATCH_NAME' appliqué avec succès !"
+log    "Backup de l'ancienne config : $BACKUP_DIR"
+echo ""
+
+# exit 0  = succès, pas de reboot
+# exit 42 = succès + reboot automatique
+exit 0

@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Installation MineOS Gaming</title>
+<style>
+  :root {
+    --green:   #4ade80;
+    --cyan:    #22d3ee;
+    --bg:      #0d1117;
+    --surface: #161b22;
+    --border:  #21262d;
+    --text:    #e6edf3;
+    --muted:   #8b949e;
+    --danger:  #f85149;
+    --warn:    #f0883e;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ── Fond animé ── */
+  #bg-canvas {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  }
+
+  /* ── Conteneur principal ── */
+  .installer {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column;
+    height: 100vh;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 24px 48px 0;
+  }
+  .logo { font-size: 32px; }
+  .brand h1 { font-size: 22px; font-weight: 600; color: var(--green); }
+  .brand p  { font-size: 13px; color: var(--muted); }
+
+  /* ── Steps indicator ── */
+  .steps {
+    display: flex; align-items: center; gap: 0;
+    padding: 28px 48px 0;
+  }
+  .step {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--muted);
+    transition: color .3s;
+  }
+  .step.active { color: var(--green); }
+  .step.done   { color: var(--cyan); }
+  .step-num {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+    background: var(--border); border: 2px solid var(--border);
+    transition: all .3s;
+  }
+  .step.active .step-num {
+    background: rgba(74,222,128,.15);
+    border-color: var(--green); color: var(--green);
+  }
+  .step.done .step-num {
+    background: rgba(34,211,238,.15);
+    border-color: var(--cyan); color: var(--cyan);
+  }
+  .step-line {
+    flex: 1; height: 2px; background: var(--border);
+    margin: 0 10px; min-width: 20px; max-width: 60px;
+    transition: background .3s;
+  }
+  .step-line.done { background: var(--cyan); }
+
+  /* ── Main content ── */
+  .content {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 24px 48px;
+  }
+
+  .screen {
+    width: 100%; max-width: 680px;
+    display: none; flex-direction: column; gap: 20px;
+    animation: fadeIn .4s ease;
+  }
+  .screen.active { display: flex; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .screen-title {
+    font-size: 28px; font-weight: 300; color: var(--text);
+    line-height: 1.2;
+  }
+  .screen-title strong { color: var(--green); font-weight: 600; }
+  .screen-sub { font-size: 14px; color: var(--muted); margin-top: -8px; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 20px;
+    transition: border-color .2s, background .2s;
+    cursor: pointer;
+  }
+  .card:hover { border-color: rgba(74,222,128,.4); background: rgba(74,222,128,.03); }
+  .card.selected {
+    border-color: var(--green);
+    background: rgba(74,222,128,.07);
+  }
+  .card-header { display: flex; align-items: center; gap: 12px; }
+  .card-icon { font-size: 24px; }
+  .card-title { font-size: 15px; font-weight: 600; }
+  .card-desc  { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .card-badge {
+    margin-left: auto; font-size: 11px; font-weight: 600;
+    padding: 3px 8px; border-radius: 20px;
+    background: rgba(74,222,128,.15); color: var(--green);
+  }
+
+  /* ── Disque selector ── */
+  .disk-list { display: flex; flex-direction: column; gap: 10px; }
+  .disk-item {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+    display: flex; align-items: center; gap: 14px;
+    cursor: pointer; transition: all .2s;
+  }
+  .disk-item:hover { border-color: rgba(74,222,128,.4); }
+  .disk-item.selected { border-color: var(--green); background: rgba(74,222,128,.05); }
+  .disk-icon { font-size: 28px; }
+  .disk-info { flex: 1; }
+  .disk-name { font-size: 14px; font-weight: 600; }
+  .disk-detail { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .disk-bar-wrap { margin-top: 8px; background: var(--border); border-radius: 3px; height: 4px; }
+  .disk-bar { height: 4px; border-radius: 3px; background: var(--warn); }
+  .disk-size {
+    font-size: 13px; font-weight: 600; color: var(--cyan);
+    white-space: nowrap;
+  }
+
+  /* ── Warning ── */
+  .warning-box {
+    background: rgba(248,81,73,.08);
+    border: 1px solid rgba(248,81,73,.3);
+    border-radius: 8px; padding: 12px 16px;
+    display: flex; gap: 10px; align-items: flex-start;
+    font-size: 13px; color: #ffa198;
+  }
+
+  /* ── Options toggles ── */
+  .option-row {
+    display: flex; align-items: center;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 18px; gap: 14px;
+  }
+  .option-icon { font-size: 20px; }
+  .option-text { flex: 1; }
+  .option-title { font-size: 14px; font-weight: 600; }
+  .option-desc  { font-size: 12px; color: var(--muted); }
+  .toggle {
+    width: 44px; height: 24px; border-radius: 12px;
+    background: var(--border); position: relative;
+    cursor: pointer; transition: background .25s; flex-shrink: 0;
+  }
+  .toggle.on { background: var(--green); }
+  .toggle::after {
+    content: ''; position: absolute;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: white; top: 3px; left: 3px;
+    transition: left .25s; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  }
+  .toggle.on::after { left: 23px; }
+
+  /* ── Progress screen ── */
+  .progress-wrap { display: flex; flex-direction: column; gap: 24px; }
+  .progress-icon { font-size: 56px; text-align: center; animation: pulse 2s infinite; }
+  @keyframes pulse {
+    0%,100% { opacity: 1; } 50% { opacity: .6; }
+  }
+  .progress-title { font-size: 22px; font-weight: 300; text-align: center; }
+  .progress-sub { font-size: 13px; color: var(--muted); text-align: center; margin-top: -14px; }
+  .progress-bar-wrap {
+    background: var(--border); border-radius: 6px;
+    height: 8px; overflow: hidden;
+  }
+  .progress-bar {
+    height: 8px; border-radius: 6px;
+    background: linear-gradient(90deg, #0d9488, var(--green));
+    transition: width .6s ease;
+    box-shadow: 0 0 12px rgba(74,222,128,.4);
+  }
+  .progress-steps { display: flex; flex-direction: column; gap: 10px; }
+  .progress-step {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 13px; color: var(--muted); opacity: .4; transition: all .3s;
+  }
+  .progress-step.active { color: var(--text); opacity: 1; }
+  .progress-step.done   { color: var(--cyan); opacity: 1; }
+  .ps-icon { width: 20px; text-align: center; }
+  .ps-spinner {
+    width: 14px; height: 14px; border: 2px solid var(--border);
+    border-top-color: var(--green); border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Done screen ── */
+  .done-icon { font-size: 64px; text-align: center; }
+  .done-title { font-size: 26px; font-weight: 300; text-align: center; }
+  .done-title strong { color: var(--green); }
+  .info-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
+  .info-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 16px;
+  }
+  .info-card-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .info-card-value { font-size: 14px; font-weight: 600; margin-top: 4px; color: var(--cyan); }
+
+  /* ── Footer ── */
+  .footer {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 48px 24px;
+  }
+  .btn {
+    padding: 10px 28px; border-radius: 8px; border: none;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: all .2s; letter-spacing: .3px;
+  }
+  .btn-primary {
+    background: var(--green); color: #0d1117;
+  }
+  .btn-primary:hover { background: #6ee7a0; transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+  .btn-ghost {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+  .btn-danger {
+    background: rgba(248,81,73,.15); color: var(--danger);
+    border: 1px solid rgba(248,81,73,.3);
+  }
+  .btn-danger:hover { background: rgba(248,81,73,.25); }
+  .footer-note { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div class="installer">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">⛏</div>
+    <div class="brand">
+      <h1>MineOS Gaming Edition</h1>
+      <p>Installation — Ubuntu 22.04 LTS</p>
+    </div>
+  </div>
+
+  <!-- Steps -->
+  <div class="steps" id="steps-bar">
+    <div class="step active" data-step="0"><div class="step-num">1</div><span>Bienvenue</span></div>
+    <div class="step-line"></div>
+    <div class="step" data-step="1"><div class="step-num">2</div><span>Disque</span></div>
+    <div class="step-line"></div>
+    <div class="step" data-step="2"><div class="step-num">3</div><span>Options</span></div>
+    <div class="step-line"></div>
+    <div class="step" data-step="3"><div class="step-num">4</div><span>Confirmation</span></div>
+    <div class="step-line"></div>
+    <div class="step" data-step="4"><div class="step-num">5</div><span>Installation</span></div>
+    <div class="step-line"></div>
+    <div class="step" data-step="5"><div class="step-num">✓</div><span>Terminé</span></div>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+
+    <!-- ═══ ÉCRAN 0 : Bienvenue ═══ -->
+    <div class="screen active" id="screen-0">
+      <div class="screen-title">Bienvenue sur<br><strong>MineOS Gaming Edition</strong></div>
+      <div class="screen-sub">Choisissez le type d'installation</div>
+
+      <div class="card selected" data-mode="full" onclick="selectMode(this,'full')">
+        <div class="card-header">
+          <div class="card-icon">🎮</div>
+          <div>
+            <div class="card-title">Installation complète</div>
+            <div class="card-desc">Steam · Lutris · Wine + DXVK · GameMode · MangoHud · GPU auto-détecté</div>
+          </div>
+          <div class="card-badge">Recommandé</div>
+        </div>
+      </div>
+
+      <div class="card" data-mode="minimal" onclick="selectMode(this,'minimal')">
+        <div class="card-header">
+          <div class="card-icon">⚡</div>
+          <div>
+            <div class="card-title">Installation minimale</div>
+            <div class="card-desc">Système de base + XFCE. Jeux installables après via MineOS Store</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" data-mode="update" onclick="selectMode(this,'update')">
+        <div class="card-header">
+          <div class="card-icon">🔄</div>
+          <div>
+            <div class="card-title">Mettre à jour un MineOS existant</div>
+            <div class="card-desc">Conserve les données. Applique les nouvelles fonctionnalités</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ ÉCRAN 1 : Choix disque ═══ -->
+    <div class="screen" id="screen-1">
+      <div class="screen-title">Choisissez un <strong>disque</strong></div>
+      <div class="screen-sub">⚠️ Le disque sélectionné sera entièrement effacé</div>
+
+      <div class="disk-list" id="disk-list">
+        <!-- Généré par JS -->
+      </div>
+
+      <div class="warning-box">
+        🚨 <span>Toutes les données du disque sélectionné seront <strong>définitivement supprimées</strong>. Assurez-vous d'avoir fait une sauvegarde.</span>
+      </div>
+    </div>
+
+    <!-- ═══ ÉCRAN 2 : Options ═══ -->
+    <div class="screen" id="screen-2">
+      <div class="screen-title">Options <strong>d'installation</strong></div>
+      <div class="screen-sub">Personnalisez votre MineOS</div>
+
+      <div class="option-row">
+        <div class="option-icon">🎮</div>
+        <div class="option-text">
+          <div class="option-title">Jeux gaming (Steam, Lutris, Wine)</div>
+          <div class="option-desc">Steam · Lutris · Heroic · Wine + DXVK · GameMode · MangoHud</div>
+        </div>
+        <div class="toggle on" onclick="toggleOpt(this,'gaming')"></div>
+      </div>
+
+      <div class="option-row">
+        <div class="option-icon">🖥️</div>
+        <div class="option-text">
+          <div class="option-title">Driver GPU automatique</div>
+          <div class="option-desc">Détecte NVIDIA / AMD / Intel et installe le bon driver au 1er démarrage</div>
+        </div>
+        <div class="toggle on" onclick="toggleOpt(this,'gpu')"></div>
+      </div>
+
+      <div class="option-row">
+        <div class="option-icon">🌐</div>
+        <div class="option-text">
+          <div class="option-title">Opera GX (navigateur)</div>
+          <div class="option-desc">Navigateur gaming. Fallback automatique vers Chromium si indisponible</div>
+        </div>
+        <div class="toggle on" onclick="toggleOpt(this,'opera')"></div>
+      </div>
+
+      <div class="option-row">
+        <div class="option-icon">📦</div>
+        <div class="option-text">
+          <div class="option-title">MineOS Store</div>
+          <div class="option-desc">Installer Discord, Spotify, OBS et applis Windows (.exe) en 2 clics</div>
+        </div>
+        <div class="toggle on" onclick="toggleOpt(this,'store')"></div>
+      </div>
+
+      <div class="option-row">
+        <div class="option-icon">🔄</div>
+        <div class="option-text">
+          <div class="option-title">Mises à jour automatiques</div>
+          <div class="option-desc">MineOS vérifie les nouvelles fonctionnalités au démarrage</div>
+        </div>
+        <div class="toggle on" onclick="toggleOpt(this,'autoupdate')"></div>
+      </div>
+    </div>
+
+    <!-- ═══ ÉCRAN 3 : Confirmation ═══ -->
+    <div class="screen" id="screen-3">
+      <div class="screen-title"><strong>Prêt</strong> à installer ?</div>
+      <div class="screen-sub">Vérifiez les informations avant de lancer l'installation</div>
+
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="info-card-label">Mode</div>
+          <div class="info-card-value" id="conf-mode">Installation complète</div>
+        </div>
+        <div class="info-card">
+          <div class="info-card-label">Disque cible</div>
+          <div class="info-card-value" id="conf-disk">—</div>
+        </div>
+        <div class="info-card">
+          <div class="info-card-label">Système de fichiers</div>
+          <div class="info-card-value">ext4 (auto)</div>
+        </div>
+        <div class="info-card">
+          <div class="info-card-label">Espace requis</div>
+          <div class="info-card-value" id="conf-size">~15 GB</div>
+        </div>
+      </div>
+
+      <div class="card" style="cursor:default; border-color: rgba(74,222,128,.2);">
+        <div style="font-size:13px; color:var(--muted); line-height:1.7;" id="conf-options">
+          <!-- Généré par JS -->
+        </div>
+      </div>
+
+      <div class="warning-box">
+        ⚠️ <span>L'installation <strong>effacera tout le disque</strong> sélectionné et installera MineOS Gaming. Cette action est irréversible.</span>
+      </div>
+    </div>
+
+    <!-- ═══ ÉCRAN 4 : Installation ═══ -->
+    <div class="screen" id="screen-4">
+      <div class="progress-wrap">
+        <div class="progress-icon">⛏</div>
+        <div class="progress-title">Installation en cours…</div>
+        <div class="progress-sub" id="progress-label">Préparation du disque</div>
+
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="progress-bar" style="width:0%"></div>
+        </div>
+
+        <div class="progress-steps">
+          <div class="progress-step" id="ps-0">
+            <div class="ps-icon">💾</div>
+            <span>Partitionnement du disque</span>
+          </div>
+          <div class="progress-step" id="ps-1">
+            <div class="ps-icon">📦</div>
+            <span>Copie du système de base</span>
+          </div>
+          <div class="progress-step" id="ps-2">
+            <div class="ps-icon">🎮</div>
+            <span>Installation des outils gaming</span>
+          </div>
+          <div class="progress-step" id="ps-3">
+            <div class="ps-icon">🖥️</div>
+            <span>Configuration du bureau XFCE</span>
+          </div>
+          <div class="progress-step" id="ps-4">
+            <div class="ps-icon">⚙️</div>
+            <span>Paramètres système + GPU</span>
+          </div>
+          <div class="progress-step" id="ps-5">
+            <div class="ps-icon">🔧</div>
+            <span>Configuration GRUB (démarrage)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ ÉCRAN 5 : Terminé ═══ -->
+    <div class="screen" id="screen-5">
+      <div class="done-icon">✅</div>
+      <div class="done-title">MineOS Gaming<br><strong>installé avec succès !</strong></div>
+
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="info-card-label">Disque installé</div>
+          <div class="info-card-value" id="done-disk">—</div>
+        </div>
+        <div class="info-card">
+          <div class="info-card-label">1er démarrage</div>
+          <div class="info-card-value">Auto-login XFCE</div>
+        </div>
+        <div class="info-card">
+          <div class="info-card-label">GPU</div>
+          <div class="info-card-value">Détection auto</div>
+        </div>
+        <div class="info-card">
+          <div class="info-card-label">Mises à jour</div>
+          <div class="info-card-value" id="done-update">Activées</div>
+        </div>
+      </div>
+
+      <div class="card" style="cursor:default; border-color:rgba(74,222,128,.25); text-align:center;">
+        <div style="font-size:14px; color:var(--muted); line-height:2;">
+          Retirez la clé USB puis redémarrez l'ordinateur<br>
+          <strong style="color:var(--green);">⛏ MineOS Gaming démarrera automatiquement</strong>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+
+  <!-- Footer -->
+  <div class="footer">
+    <div>
+      <button class="btn btn-ghost" id="btn-back" onclick="prevStep()" style="display:none">← Retour</button>
+    </div>
+    <div class="footer-note" id="footer-note">Étape 1 sur 5</div>
+    <div>
+      <button class="btn btn-primary" id="btn-next" onclick="nextStep()">Continuer →</button>
+    </div>
+  </div>
+
+</div><!-- /installer -->
+
+<script>
+// ════════════════════════════════════════════
+//  État global
+// ════════════════════════════════════════════
+let step = 0;
+const TOTAL = 6;
+let state = {
+  mode: 'full',
+  disk: null,
+  opts: { gaming: true, gpu: true, opera: true, store: true, autoupdate: true }
+};
+
+// Disques simulés (en vrai : lus via le script shell qui ouvre ce fichier)
+const DISKS = [
+  { id: 'sda', name: '/dev/sda', desc: 'Samsung SSD 870 EVO',      size: '500 GB', used: 45, icon: '💿' },
+  { id: 'nvme0n1', name: '/dev/nvme0n1', desc: 'WD Black SN850X NVMe', size: '1 TB',   used: 20, icon: '⚡' },
+  { id: 'sdb', name: '/dev/sdb', desc: 'Seagate Barracuda HDD',     size: '2 TB',   used: 60, icon: '🖴'  },
+];
+
+// ════════════════════════════════════════════
+//  Fond animé (particules)
+// ════════════════════════════════════════════
+const canvas = document.getElementById('bg-canvas');
+const ctx    = canvas.getContext('2d');
+let W, H, particles = [];
+
+function initCanvas() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  particles = Array.from({length: 60}, () => ({
+    x: Math.random()*W, y: Math.random()*H,
+    r: Math.random()*1.5+.5,
+    vx: (Math.random()-.5)*.3, vy: (Math.random()-.5)*.3,
+    a: Math.random()*.4+.1
+  }));
+}
+window.addEventListener('resize', initCanvas);
+initCanvas();
+
+function animBg() {
+  ctx.clearRect(0,0,W,H);
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+    if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(74,222,128,${p.a})`;
+    ctx.fill();
+  });
+  // Lignes entre particules proches
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i+1; j < particles.length; j++) {
+      const dx = particles[i].x - particles[j].x;
+      const dy = particles[i].y - particles[j].y;
+      const d  = Math.sqrt(dx*dx+dy*dy);
+      if (d < 100) {
+        ctx.beginPath();
+        ctx.moveTo(particles[i].x, particles[i].y);
+        ctx.lineTo(particles[j].x, particles[j].y);
+        ctx.strokeStyle = `rgba(74,222,128,${.08*(1-d/100)})`;
+        ctx.lineWidth = .5;
+        ctx.stroke();
+      }
+    }
+  }
+  requestAnimationFrame(animBg);
+}
+animBg();
+
+// ════════════════════════════════════════════
+//  Navigation
+// ════════════════════════════════════════════
+function updateUI() {
+  document.querySelectorAll('.screen').forEach((s,i) => {
+    s.classList.toggle('active', i === step);
+  });
+  document.querySelectorAll('.step').forEach((s,i) => {
+    s.classList.remove('active','done');
+    if (i === step) s.classList.add('active');
+    if (i < step)  s.classList.add('done');
+  });
+  document.querySelectorAll('.step-line').forEach((l,i) => {
+    l.classList.toggle('done', i < step);
+  });
+
+  const btnBack = document.getElementById('btn-back');
+  const btnNext = document.getElementById('btn-next');
+  const note    = document.getElementById('footer-note');
+
+  btnBack.style.display = (step > 0 && step < 4) ? '' : 'none';
+
+  if (step === 4) {
+    btnNext.style.display = 'none';
+    note.textContent = '';
+  } else if (step === 5) {
+    btnNext.textContent = '🔄 Redémarrer';
+    btnNext.style.display = '';
+    btnNext.onclick = () => { window.close(); };
+    note.textContent = 'Installation terminée !';
+  } else {
+    btnNext.textContent = step === 3 ? '🚀 Installer MineOS' : 'Continuer →';
+    btnNext.onclick = nextStep;
+    btnNext.style.display = '';
+    note.textContent = `Étape ${step+1} sur 5`;
+  }
+
+  const btnNextEl = document.getElementById('btn-next');
+  if (step === 1 && !state.disk) {
+    btnNextEl.disabled = true;
+  } else {
+    btnNextEl.disabled = false;
+  }
+}
+
+function nextStep() {
+  if (step === 3) { startInstall(); return; }
+  if (step >= TOTAL-1) return;
+  if (step === 0) buildDiskList();
+  if (step === 3) buildConfirmation();
+  step++;
+  if (step === 3) buildConfirmation();
+  updateUI();
+}
+function prevStep() { if (step > 0) { step--; updateUI(); } }
+
+// ════════════════════════════════════════════
+//  Écran 0 : mode
+// ════════════════════════════════════════════
+function selectMode(el, mode) {
+  document.querySelectorAll('.card[data-mode]').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  state.mode = mode;
+}
+
+// ════════════════════════════════════════════
+//  Écran 1 : disques
+// ════════════════════════════════════════════
+function buildDiskList() {
+  const list = document.getElementById('disk-list');
+  list.innerHTML = '';
+  DISKS.forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'disk-item';
+    el.innerHTML = `
+      <div class="disk-icon">${d.icon}</div>
+      <div class="disk-info">
+        <div class="disk-name">${d.name} — ${d.desc}</div>
+        <div class="disk-detail">Occupation actuelle : ${d.used}%</div>
+        <div class="disk-bar-wrap">
+          <div class="disk-bar" style="width:${d.used}%"></div>
+        </div>
+      </div>
+      <div class="disk-size">${d.size}</div>
+    `;
+    el.onclick = () => {
+      document.querySelectorAll('.disk-item').forEach(x => x.classList.remove('selected'));
+      el.classList.add('selected');
+      state.disk = d;
+      document.getElementById('btn-next').disabled = false;
+    };
+    list.appendChild(el);
+  });
+}
+
+// ════════════════════════════════════════════
+//  Écran 2 : toggles
+// ════════════════════════════════════════════
+function toggleOpt(el, key) {
+  el.classList.toggle('on');
+  state.opts[key] = el.classList.contains('on');
+}
+
+// ════════════════════════════════════════════
+//  Écran 3 : confirmation
+// ════════════════════════════════════════════
+function buildConfirmation() {
+  const modes = { full:'Installation complète 🎮', minimal:'Installation minimale ⚡', update:'Mise à jour 🔄' };
+  document.getElementById('conf-mode').textContent = modes[state.mode] || '—';
+  document.getElementById('conf-disk').textContent = state.disk ? `${state.disk.name} (${state.disk.size})` : '—';
+  document.getElementById('conf-size').textContent = state.mode === 'full' ? '~15 GB' : '~6 GB';
+
+  const opts = [];
+  if (state.opts.gaming)     opts.push('🎮 Steam · Lutris · Wine + DXVK · GameMode · MangoHud');
+  if (state.opts.gpu)        opts.push('🖥️ Driver GPU auto (NVIDIA / AMD / Intel)');
+  if (state.opts.opera)      opts.push('🌐 Opera GX (navigateur gaming)');
+  if (state.opts.store)      opts.push('📦 MineOS Store');
+  if (state.opts.autoupdate) opts.push('🔄 Mises à jour automatiques');
+  document.getElementById('conf-options').innerHTML = opts.map(o => `✅ ${o}`).join('<br>');
+}
+
+// ════════════════════════════════════════════
+//  Écran 4 : simulation installation
+// ════════════════════════════════════════════
+const INSTALL_STEPS = [
+  { label: 'Partitionnement du disque…',       duration: 2000 },
+  { label: 'Copie du système Ubuntu de base…', duration: 4000 },
+  { label: 'Installation des outils gaming…',  duration: 3500 },
+  { label: 'Configuration du bureau XFCE…',    duration: 2500 },
+  { label: 'Paramètres système + GPU…',        duration: 2000 },
+  { label: 'Installation GRUB + finalisation…',duration: 2000 },
+];
+
+function startInstall() {
+  step = 4;
+  updateUI();
+
+  let currentStep = 0;
+  let totalDuration = INSTALL_STEPS.reduce((a,s) => a+s.duration, 0);
+  let elapsed = 0;
+
+  function runStep(i) {
+    if (i >= INSTALL_STEPS.length) {
+      // Terminé
+      document.getElementById('progress-bar').style.width = '100%';
+      document.getElementById('progress-label').textContent = '✅ Installation terminée !';
+      const psEl = document.getElementById(`ps-${i-1}`);
+      if (psEl) {
+        const spinner = psEl.querySelector('.ps-spinner');
+        if (spinner) spinner.outerHTML = '✅';
+        psEl.classList.remove('active');
+        psEl.classList.add('done');
+      }
+      setTimeout(() => {
+        step = 5;
+        document.getElementById('done-disk').textContent = state.disk ? state.disk.name : '—';
+        document.getElementById('done-update').textContent = state.opts.autoupdate ? 'Activées' : 'Désactivées';
+        updateUI();
+      }, 800);
+      return;
+    }
+
+    const s = INSTALL_STEPS[i];
+    document.getElementById('progress-label').textContent = s.label;
+
+    // Marquer l'étape précédente comme done
+    if (i > 0) {
+      const prev = document.getElementById(`ps-${i-1}`);
+      if (prev) {
+        const spinner = prev.querySelector('.ps-spinner');
+        if (spinner) spinner.outerHTML = '✅';
+        prev.classList.remove('active');
+        prev.classList.add('done');
+      }
+    }
+
+    // Activer l'étape actuelle
+    const cur = document.getElementById(`ps-${i}`);
+    if (cur) {
+      const icon = cur.querySelector('.ps-icon');
+      if (icon) icon.innerHTML = '<div class="ps-spinner"></div>';
+      cur.classList.add('active');
+    }
+
+    // Animer la barre
+    const startPct = (elapsed / totalDuration) * 100;
+    elapsed += s.duration;
+    const endPct = (elapsed / totalDuration) * 100;
+
+    let pct = startPct;
+    const interval = setInterval(() => {
+      pct = Math.min(pct + (endPct - startPct) / (s.duration / 50), endPct);
+      document.getElementById('progress-bar').style.width = pct + '%';
+      if (pct >= endPct) clearInterval(interval);
+    }, 50);
+
+    setTimeout(() => runStep(i+1), s.duration);
+  }
+
+  setTimeout(() => runStep(0), 400);
+}
+
+// Init
+buildDiskList();
+updateUI();
+</script>
+</body>
+</html>

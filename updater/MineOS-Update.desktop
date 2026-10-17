@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=⛏ MineOS Update
+Comment=Mettre à jour MineOS Gaming Edition
+Exec=xfce4-terminal --title="MineOS Update" --hide-scrollbar -e "bash /usr/local/bin/MineOS-Update"
+Icon=software-update-available
+Terminal=false
+Type=Application
+Categories=System;
+StartupNotify=true

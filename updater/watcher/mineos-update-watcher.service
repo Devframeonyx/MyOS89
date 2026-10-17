@@ -1,0 +1,26 @@
+[Unit]
+Description=MineOS Gaming — Auto Update Watcher
+Documentation=https://github.com/TON-USER/mineos-gaming
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mineos-watcher
+Restart=always
+RestartSec=5
+
+# Le watcher tourne en root pour pouvoir appliquer n'importe quel patch
+User=root
+Group=root
+
+# Stdout et stderr vont dans le journal systemd ET dans le fichier log
+StandardOutput=append:/var/log/mineos-watcher.log
+StandardError=append:/var/log/mineos-watcher.log
+
+# Redémarre même en cas de crash
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

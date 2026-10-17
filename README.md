@@ -1,76 +1,164 @@
-# ⛏ MineOS Gaming Edition
+# ⛏ MineOS Gaming Edition — v14
 
-OS basé sur Ubuntu 22.04 LTS — optimisé gaming, GPU universel.
+> **Distribution Linux gaming clé en main**, basée sur Ubuntu 22.04 LTS  
+> Build par **chroot direct** — plus de `live-build`, plus de bug initrd depuis la v6
 
-## 🚀 Compiler via GitHub Actions
+---
 
-1. Fais un **Fork** de ce dépôt sur ton compte GitHub
-2. Onglet **Actions** → activer les workflows
-3. **Build MineOS Gaming ISO** → **Run workflow**
-4. Attendre ~30 min
-5. Télécharger l'ISO dans **Artifacts**
+## 🚀 Pourquoi v13 est différente
 
-## 💿 Flasher l'ISO
+Depuis la v6, toutes les versions buguaient au même endroit :
+```
+cp: cannot stat 'chroot/boot/initrd.img-*': No such file or directory
+```
+
+**Cause racine :** `live-build` laisse `update-initramfs` en mode "deferred" dans le chroot, donc `initrd.img` n'est jamais généré quand `lb_chroot_hacks` en a besoin.
+
+**Solution v13 :** On abandonne complètement `live-build` et on construit comme le font **Linux Mint**, **Pop!_OS** et **Zorin OS** :
+
+| Ancienne approche (v1→v12) | Nouvelle approche (v13) |
+|---------------------------|------------------------|
+| `lb config` + `lb build` | Chroot direct sur Ubuntu |
+| live-build gère l'initrd  | `mkinitramfs` appelé directement |
+| Bug initrd systématique   | initrd généré à l'étape 5, vérifié avant de continuer |
+| Patch lb_chroot_hacks     | **Supprimé** — inutile |
+
+---
+
+## 🎮 Contenu de l'ISO
+
+### Gaming
+| Outil | Description |
+|-------|-------------|
+| **Steam** | Bibliothèque Steam + Proton |
+| **Lutris** | Gestionnaire multi-sources (GOG, Epic, etc.) |
+| **Heroic Games** | Client Epic Games Store + GOG |
+| **Wine + DXVK** | DirectX 9/10/11/12 → Vulkan via DXVK 2.3.1 |
+| **Bottles** | Interface graphique Wine (Flatpak) |
+| **GameMode** | Optimise les performances CPU/GPU pendant les jeux |
+| **MangoHud** | Overlay FPS / CPU / GPU / RAM (Shift+F12) |
+
+### GPU (détection automatique au démarrage)
+- **NVIDIA** → `ubuntu-drivers install` + config Xorg
+- **AMD** → Mesa RADV + `RADV_PERFTEST=aco,ngg`
+- **Intel** → Mesa Iris + optimisations i915
+
+### Bureau
+- **XFCE** + thème **MineOS Dark** (vert #4ade80 sur fond sombre)
+- **Papirus Dark** icônes
+- **Opera GX** (ou Chromium en fallback si inaccessible)
+- **MineOS Store** : installer apps Linux + Windows en 2 clics
+
+### Applications préinstallées
+Discord, Spotify, OBS Studio, VSCode, Kdenlive, Blender, GIMP, VLC, LibreOffice (via Flatpak au 1er démarrage)
+
+### Optimisations système
+- `vm.swappiness=10` — moins de swap, plus de RAM pour les jeux
+- PulseAudio low-latency (5ms, realtime-priority=9)
+- Limits système étendues (nofile, memlock)
+- Kernel Liquorix si disponible (sinon Ubuntu générique)
+
+---
+
+## 🔨 Build
+
+### GitHub Actions (recommandé)
+1. Fork ce repo
+2. `Actions → Build MineOS Gaming ISO → Run workflow`
+3. L'ISO est disponible dans les Artifacts (~2.5-4 GB)
+
+### En local
+```bash
+sudo bash scripts/build.sh 1.0.0
+# ISO dans : /opt/mineos-output/
+```
+
+**Prérequis :**
+```bash
+sudo apt-get install squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin \
+    shim-signed mtools syslinux isolinux wget imagemagick python3-pil
+```
+
+---
+
+## 💾 Créer une clé USB bootable
 
 ```bash
 # Linux
-sudo dd if=MineOS-Gaming-1.0.0-x86_64.iso of=/dev/sdX bs=4M status=progress && sync
+sudo dd if=MineOS-Gaming-1.0.0-x86_64.iso of=/dev/sdX bs=4M status=progress oflag=sync
 
-# Windows : Rufus ou balenaEtcher
+# Ou Balena Etcher (Windows/macOS/Linux)
 ```
 
-## 🎮 Ce qui est inclus
+## ▶️ Démarrage
 
-| Composant | Détail |
-|-----------|--------|
-| Base | Ubuntu 22.04 LTS (Jammy Jellyfish) |
-| Navigateur | Opera GX |
-| Gaming | Steam, Lutris, PlayOnLinux |
-| Compatibilité .exe | Wine + DXVK (DirectX→Vulkan) |
-| Boost gaming | GameMode (CPU perf auto) |
-| Overlay FPS | MangoHud (Shift_R+F12) |
-| Kernel | Liquorix (low-latency, fallback kernel Ubuntu générique) |
-| GPU NVIDIA | nvidia-driver (auto-détecté) + TripleBuffer |
-| GPU AMD | AMDGPU + RADV Vulkan + ACO |
-| GPU Intel | i915 GuC/HuC + Iris Vulkan |
-| Bureau | XFCE4 + thème MineOS Dark |
-| Apps | Thunar, xfce4-terminal, VLC, GIMP, Mousepad |
-| Store | MineOS Store (apps Linux & Windows via Zenity) |
+| Option GRUB | Usage |
+|-------------|-------|
+| **MineOS Gaming (Live)** | Mode normal — auto-login XFCE |
+| **Mode sans échec (nomodeset)** | Si problème GPU/écran noir |
+| **Mode RAM (toram)** | Tout en mémoire, plus rapide après chargement |
 
-## ⌨️ Raccourcis bureau
+---
 
-| Touche | Action |
-|--------|--------|
-| Clic droit bureau | Menu |
-| Barre des tâches → ⛏ MineOS | Menu Whisker |
+## ⚡ Système de patch automatique (.MineOSUp)
 
-## 💻 Commandes terminal
+MineOS v14 intègre un **Update Watcher** — comme Windows Update, mais en mieux.
 
+**Comment ça marche :**
+1. Dépose un fichier `.MineOSUp` dans `/opt/mineos-updates/`
+2. Le daemon le détecte instantanément
+3. Il l'exécute automatiquement
+4. Il le supprime après application
+5. Redémarre si le patch le demande (`exit 42`)
+
+**Créer un patch :**
 ```bash
-exe fichier.exe          # Wine + GameMode
-exe-dxvk fichier.exe    # Wine + DXVK + overlay FPS
-steam                   # Steam avec GameMode
-gpu                     # Infos GPU / Vulkan
-store                   # MineOS Store
-wallpaper               # Changer le fond d'écran
+cp updater/patches/MineOS-Update-NewBar.MineOSUp mon-patch.MineOSUp
+# Modifie le contenu, puis dépose dans /opt/mineos-updates/
 ```
 
-## 📊 RAM estimée (i3-7020U + 16 GB)
+**Suivre les logs :**
+```bash
+tail -f /var/log/mineos-watcher.log
+journalctl -u mineos-update-watcher -f
+```
 
-| Situation | RAM utilisée |
-|-----------|-------------|
-| Idle bureau | ~380 MB |
-| + Opera GX 5 onglets | ~900 MB |
-| + Steam ouvert | ~1,2 GB |
-| + Jeu Wine | ~2,5 GB |
+---
 
-## 🐛 Bugs corrigés (v9 → v10)
+## 🗂️ Structure du projet
 
-- **README** : mentionnait Chrome alors que le script installe Opera GX → corrigé
-- **build-all.sh** : `set -uo pipefail` sans `-e` était incohérent avec les sous-scripts qui utilisent `set -e` → clarifié
-- **hook 0100-opera** : pas de vérification si le dépôt Opera est joignable avant `apt-get update` → ajout d'un fallback
-- **hook 0200-wine** : `dpkg --add-architecture i386` appelé deux fois (ici et dans 0300-steam) → dédupliqué dans un hook séparé `0150-i386`
-- **hook 0500-gpu** : `lspci` dans un chroot live-build ne retourne rien (pas de `/proc` complet) → détection GPU déplacée dans un script runtime exécuté au démarrage
-- **hook 0800-initramfs** : `mkinitramfs` pouvait échouer silencieusement si `/lib/modules/` était vide → ajout d'une vérification explicite
-- **0600-xfce-desktop** : alias `chrome='opera'` dans `.bashrc` mais Opera s'appelle `opera` ou `opera-stable` → alias corrigé + ajout `opera-gx`
-- **build.yml** : pas de `permissions: contents: write` pour le job de release → ajout explicite
+```
+mineos-v14/
+├── .github/workflows/
+│   └── build.yml              # CI/CD GitHub Actions
+├── scripts/
+│   ├── build.sh               # Script principal (étapes 1-10)
+│   ├── configure-chroot.sh    # Config MineOS dans le chroot
+│   └── build-iso.sh           # Génération ISO avec xorriso
+├── installer/
+│   ├── install-core.sh        # Installeur système
+│   ├── mineos-install.sh      # Script d'entrée installeur
+│   └── mineos-installer.html  # Interface web installeur
+└── updater/
+    ├── MineOS-Update.sh        # Gestionnaire de mises à jour interactif
+    ├── MineOS-Update.desktop   # Raccourci bureau
+    ├── watcher/
+    │   ├── mineos-watcher.sh              # Daemon de surveillance .MineOSUp
+    │   ├── mineos-update-watcher.service  # Service systemd
+    │   └── install-watcher.sh            # Installation manuelle du watcher
+    └── patches/
+        └── MineOS-Update-NewBar.MineOSUp  # Patch exemple — nouvelle barre
+```
+
+---
+
+## ❓ FAQ
+
+**Q: Pourquoi ne pas utiliser live-build ?**  
+R: 7 versions de patches ont essayé de contourner le bug initrd de live-build sur Ubuntu dans GitHub Actions. La solution est d'arrêter d'utiliser live-build, pas de le patcher davantage.
+
+**Q: L'ISO est-elle installable sur disque dur ?**  
+R: Le live system Ubuntu inclut `ubiquity` ou `calamares` si tu veux ajouter un installeur. Pour l'instant, MineOS est un système live (démarrage depuis USB).
+
+**Q: Le driver NVIDIA ne s'installe pas ?**  
+R: Il se télécharge au 1er démarrage (le dépôt Ubuntu est contacté). Boot en mode sans échec (`nomodeset`) si l'écran est noir, puis attendre le service `mineos-gpu-detect`.
