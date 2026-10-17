@@ -53,6 +53,54 @@ lb config \
   --bootappend-live "boot=live components quiet splash hostname=mineos username=user"
 
 # ─────────────────────────────────────────────
+# FIX : ubuntu-keyring (injecté automatiquement par lb sur runner Ubuntu)
+# ─────────────────────────────────────────────
+echo "[1b/9] Fix ubuntu-keyring + mirrors parent..."
+
+# Forcer les variables parent pour que lb ne prenne pas Ubuntu comme base
+cat >> /etc/live/build.conf << 'EOF'
+LB_PARENT_DISTRIBUTION="bookworm"
+LB_PARENT_MIRROR_BOOTSTRAP="http://deb.debian.org/debian"
+LB_PARENT_MIRROR_CHROOT="http://deb.debian.org/debian"
+LB_PARENT_MIRROR_CHROOT_SECURITY="http://security.debian.org/debian-security"
+LB_PARENT_MIRROR_BINARY="http://deb.debian.org/debian"
+LB_PARENT_MIRROR_BINARY_SECURITY="http://security.debian.org/debian-security"
+EOF
+
+export LB_PARENT_DISTRIBUTION=bookworm
+export LB_PARENT_MIRROR_BOOTSTRAP="http://deb.debian.org/debian"
+export LB_PARENT_MIRROR_CHROOT="http://deb.debian.org/debian"
+export LB_PARENT_MIRROR_CHROOT_SECURITY="http://security.debian.org/debian-security"
+export LB_PARENT_MIRROR_BINARY="http://deb.debian.org/debian"
+export LB_PARENT_MIRROR_BINARY_SECURITY="http://security.debian.org/debian-security"
+
+# Bloquer ubuntu-keyring via apt preferences dans le chroot
+mkdir -p config/archives
+cat > config/archives/block-ubuntu.pref.chroot << 'EOF'
+Package: ubuntu-keyring ubuntu-minimal ubuntu-standard ubuntu-base
+Pin: release o=Ubuntu
+Pin-Priority: -1
+
+Package: *
+Pin: release o=Debian
+Pin-Priority: 990
+EOF
+
+# Sources explicitement Debian dans le chroot
+cat > config/archives/debian.list.chroot << 'EOF'
+deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
+EOF
+
+# Patcher le auto/config généré si besoin
+if [ -f auto/config ]; then
+  sed -i 's/ubuntu-keyring/debian-archive-keyring/g' auto/config 2>/dev/null || true
+fi
+
+echo "Fix ubuntu-keyring OK"
+
+# ─────────────────────────────────────────────
 # ÉTAPE 2 : Hostname
 # ─────────────────────────────────────────────
 echo "[2/9] Hostname..."
