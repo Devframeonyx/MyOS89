@@ -122,7 +122,17 @@ locales
 tzdata
 rsync
 ubuntu-keyring
+linux-image-generic
+linux-headers-generic
 EOF
+# IMPORTANT : linux-image-generic doit être dans la liste de paquets (pas un hook).
+# initramfs-tools et casper s'installent pendant lb_chroot_live-packages et
+# déclenchent le trigger update-initramfs. Sans kernel installé à ce moment,
+# /boot/initrd.img et /boot/initrd.img.old sont des symlinks cassés.
+# lb_chroot_hacks tente ensuite un chmod dessus → exit 123.
+# Avec linux-image-generic ici, le trigger trouve un kernel et génère l'initramfs
+# AVANT que lb_chroot_hacks ne tourne. Le hook Liquorix (0250) remplace ensuite
+# ce kernel par la version gaming.
 
 # Paquets boot EFI + BIOS (nécessaires pour iso-hybrid bootable sur vrai PC)
 cat > config/package-lists/00-boot.list.chroot << 'EOF'
