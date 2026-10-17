@@ -1,4 +1,4 @@
-name: "⛏ MineOS Gaming ISO — Build v14"
+name: "⛏ MineOS Gaming ISO — Build v13"
 
 # ─── DÉCLENCHEURS ────────────────────────────────────────────────────────────
 on:
@@ -41,7 +41,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y \
-            squashfs-tools unsquashfs \
+            squashfs-tools \
             xorriso isolinux syslinux-common \
             grub-pc-bin grub-efi-amd64-bin grub-efi-amd64 \
             shim-signed mtools efibootmgr \
