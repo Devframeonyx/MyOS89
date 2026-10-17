@@ -1,30 +1,16 @@
 # ⛏ MineOS Gaming Edition
 
-OS basé sur **Debian 12 Live** — optimisé gaming pour i3-7020U + 16 GB RAM.
-
-## 🎮 Optimisations gaming incluses
-
-| Composant | Détail |
-|-----------|--------|
-| **Kernel** | Liquorix (low-latency, scheduler gaming) |
-| **Wine** | + DXVK (DirectX 9/10/11 → Vulkan) + WINEFSYNC |
-| **GameMode** | Boost CPU governor → performance automatique en jeu |
-| **MangoHud** | Overlay FPS/CPU/GPU/RAM (Shift+F12) |
-| **Steam** | Proton intégré (compatibilité jeux Windows) |
-| **Lutris** | GOG, Epic, Battle.net, jeux rétro |
-| **Intel HD 620** | GuC/HuC activé, FBC, PSR |
-| **Swappiness** | 10 (garde max en RAM) |
-| **Audio** | PulseAudio low-latency (5ms fragments) |
-| **GRUB** | `mitigations=off` (+10-15% CPU), `nohz_full` |
+OS basé sur Debian 12 Live — optimisé gaming, GPU universel.
 
 ## 🚀 Compiler via GitHub Actions
 
-1. **Fork ce repo**
-2. **Actions** → **Build MineOS Gaming ISO** → **Run workflow**
-3. Attendre ~30 min
-4. Télécharger dans **Artifacts**
+1. Fork ce repo sur ton compte GitHub
+2. Onglet **Actions** → activer les workflows
+3. **Build MineOS Gaming ISO** → **Run workflow**
+4. Attendre ~30 min
+5. Télécharger l'ISO dans **Artifacts**
 
-## 💿 Flasher
+## 💿 Flasher l'ISO
 
 ```bash
 # Linux
@@ -33,33 +19,51 @@ sudo dd if=MineOS-Gaming-1.0.0-x86_64.iso of=/dev/sdX bs=4M status=progress && s
 # Windows : Rufus ou balenaEtcher
 ```
 
-## ⌨️ Raccourcis clavier
+## 🎮 Ce qui est inclus
+
+| Composant | Détail |
+|-----------|--------|
+| Base | Debian 12 Bookworm Live |
+| Navigateur | Google Chrome |
+| Gaming | Steam, Lutris, PlayOnLinux |
+| Compatibilité .exe | Wine + DXVK (DirectX→Vulkan) |
+| Boost gaming | GameMode (CPU perf auto) |
+| Overlay FPS | MangoHud (Shift+F12) |
+| Kernel | Liquorix (low-latency) |
+| GPU NVIDIA | nvidia-driver + TripleBuffer |
+| GPU AMD | AMDGPU + RADV Vulkan + ACO |
+| GPU Intel | i915 GuC/HuC + Iris Vulkan |
+| Bureau | Openbox + thème MineOS Dark |
+| Apps | Thunar, Tilix, VLC, GIMP, Mousepad |
+
+## ⌨️ Raccourcis
 
 | Touche | Action |
 |--------|--------|
-| `Super+Entrée` | Terminal |
-| `Super+B` | Chrome |
-| `Super+G` | Steam |
-| `Super+L` | Lutris |
-| `Super+E` | Fichiers |
-| `Shift+F12` | Toggle MangoHud (overlay FPS) |
-| `Shift+F1` | Toggle limite FPS |
-| `Clic droit bureau` | Menu |
+| Super+Entrée | Terminal |
+| Super+B | Chrome |
+| Super+G | Steam |
+| Super+L | Lutris |
+| Super+E | Fichiers |
+| Super+R | Lanceur d'apps |
+| Shift+F12 | Toggle MangoHud (overlay FPS) |
+| Clic droit bureau | Menu |
 
 ## 💻 Commandes terminal
 
 ```bash
-exe fichier.exe          # Lance avec Wine + GameMode
-exe-dxvk fichier.exe     # Wine + DXVK + MangoHud overlay
-steam                    # Steam (avec GameMode)
-gaming-info              # Infos GPU OpenGL
+exe fichier.exe        # Wine + GameMode
+exe-dxvk fichier.exe   # Wine + DXVK + overlay FPS
+steam                  # Steam avec GameMode
+gpu                    # Infos GPU / Vulkan / VRAM
+dxvk                   # Activer DXVK dans le prefix Wine
 ```
 
-## 📊 RAM estimée sur i3-7020U + 16 GB
+## 📊 RAM estimée (i3-7020U + 16 GB)
 
-| Situation | RAM utilisée | RAM libre |
-|-----------|-------------|-----------|
-| Idle bureau | ~380 MB | ~15,6 GB |
-| + Chrome (5 onglets) | ~900 MB | ~15,1 GB |
-| + Steam ouvert | ~1,2 GB | ~14,8 GB |
-| + Jeu Wine moyen | ~2,5 GB | ~13,5 GB |
+| Situation | RAM utilisée |
+|-----------|-------------|
+| Idle bureau | ~380 MB |
+| + Chrome 5 onglets | ~900 MB |
+| + Steam ouvert | ~1,2 GB |
+| + Jeu Wine | ~2,5 GB |
