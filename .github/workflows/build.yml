@@ -94,4 +94,3 @@ jobs:
           echo "| Version | ${{ steps.ver.outputs.V }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Taille | ${{ steps.stats.outputs.SIZE }} |" >> $GITHUB_STEP_SUMMARY
           echo "| SHA256 | \`${{ steps.stats.outputs.SHA256 }}\` |" >> $GITHUB_STEP_SUMMARY
-          
