@@ -1266,33 +1266,43 @@ else
     echo ">>> Backup : ${LB_HACKS}.orig"
   fi
 
-  # Patch 1 : chmod sur initrd.img      (symlink principal)
-  # Avant : chmod 600 chroot/boot/initrd.img
-  # Après : [ -e chroot/boot/initrd.img ] && chmod 600 chroot/boot/initrd.img
-  sed -i \
-    's|^\(\s*\)chmod \([0-9]*\) \(chroot/boot/initrd\.img\)\s*$|\1[ -e \3 ] \&\& chmod \2 \3|' \
-    "$LB_HACKS"
+  # Patch principal (live-build 3.0~a57, Ubuntu 22.04) — ligne exacte confirmée :
+  #   find chroot/boot -name 'initrd*' -print0 | xargs -r -0 chmod go+r
+  # Fix : -not -xtype l pour ignorer les symlinks cassés
+  python3 - "$LB_HACKS" << 'PYEOF'
+import sys, shutil, re, subprocess
 
-  # Patch 2 : chmod sur initrd.img.old  (symlink "ancien kernel", absent dans un chroot frais)
-  sed -i \
-    's|^\(\s*\)chmod \([0-9]*\) \(chroot/boot/initrd\.img\.old\)\s*$|\1[ -e \3 ] \&\& chmod \2 \3|' \
-    "$LB_HACKS"
+path = sys.argv[1]
+shutil.copy(path, path + '.orig')
+with open(path) as f:
+    text = f.read()
+original = text
 
-  # Patch 3 : chmod sur vmlinuz.old     (même problème, même fix)
-  sed -i \
-    's|^\(\s*\)chmod \([0-9]*\) \(chroot/boot/vmlinuz\.old\)\s*$|\1[ -e \3 ] \&\& chmod \2 \3|' \
-    "$LB_HACKS"
+OLD = "find chroot/boot -name 'initrd*' -print0 | xargs -r -0 chmod go+r"
+NEW = "find chroot/boot -name 'initrd*' -not -xtype l -print0 | xargs -r -0 chmod go+r  # patched"
+text = text.replace(OLD, NEW)
 
-  # Vérifier que le patch a modifié quelque chose (ou que le fichier était déjà patché)
-  if diff -q "${LB_HACKS}.orig" "$LB_HACKS" > /dev/null 2>&1; then
-    echo ">>> Aucune modification — soit déjà patché, soit les lignes n'ont pas le format attendu"
-    echo ">>> Vérification manuelle :"
-    grep -n "initrd.img\|vmlinuz.old" "$LB_HACKS" | head -10 || true
-  else
-    echo ">>> lb_chroot_hacks patché avec succès"
-    echo ">>> Diff :"
-    diff "${LB_HACKS}.orig" "$LB_HACKS" || true
-  fi
+# Sécurité : conditions [ -L ... ] → [ -e ... ]
+text = re.sub(
+    r'\[ -[eL] (chroot/boot/(?:initrd[^ \]]*|vmlinuz[^ \]]*)) \]'
+    r'(?:\s*\|\|\s*\[ -[eL] \1 \])?',
+    r'[ -e \1 ]', text)
+# Sécurité : chmod direct → non-fatal
+text = re.sub(
+    r'(chmod\s+\S+\s+chroot/boot/(?:initrd[^ \n]*|vmlinuz[^ \n]*))',
+    r'\1 2>/dev/null || true  # patched', text)
+
+if text == original:
+    print("WARN: aucune modification — lignes boot présentes :")
+    for i, l in enumerate(original.split('\n'), 1):
+        if re.search(r'chmod|initrd|vmlinuz', l):
+            print(f"  {i:4d}: {l}")
+else:
+    with open(path, 'w') as f:
+        f.write(text)
+    subprocess.run(['diff', path + '.orig', path])
+    print(">>> lb_chroot_hacks patché avec succès")
+PYEOF
 fi
 
 # ─────────────────────────────────────────────
