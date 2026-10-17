@@ -1,4 +1,4 @@
-name: Build MineOS Gaming ISO
+name: Build MineOS Gaming ISO (Ubuntu)
 
 on:
   workflow_dispatch:
@@ -27,7 +27,7 @@ jobs:
           V="${{ github.event.inputs.version || github.ref_name || '1.0.0' }}"
           V="${V#v}"
           echo "V=$V" >> $GITHUB_OUTPUT
-          echo "Building MineOS Gaming v$V"
+          echo "Building MineOS Gaming v$V (Ubuntu Jammy base)"
 
       - name: Install dependencies
         run: |
@@ -36,7 +36,7 @@ jobs:
             live-build debootstrap squashfs-tools xorriso \
             grub-pc-bin grub-efi-amd64-bin mtools isolinux \
             syslinux-common rsync wget curl ca-certificates \
-            imagemagick python3-pil
+            imagemagick python3-pil ubuntu-keyring
           echo "live-build: $(lb --version)"
 
       - name: Build ISO
@@ -76,8 +76,9 @@ jobs:
           name: "MineOS Gaming ${{ steps.ver.outputs.V }}"
           body: |
             ## MineOS Gaming ${{ steps.ver.outputs.V }}
+            **Base : Ubuntu 22.04 LTS (Jammy Jellyfish)**
             - Steam | Lutris | Wine + DXVK | GameMode | MangoHud
-            - GPU : NVIDIA / AMD / Intel auto-detecte
+            - GPU : NVIDIA / AMD / Intel auto-détecté
             - Kernel Liquorix | swappiness=10 | audio low-latency
             - **Taille :** ${{ steps.stats.outputs.SIZE }}
             - **SHA256 :** `${{ steps.stats.outputs.SHA256 }}`
@@ -90,7 +91,8 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## MineOS Gaming Build OK" >> $GITHUB_STEP_SUMMARY
+          echo "## MineOS Gaming Build OK (Ubuntu)" >> $GITHUB_STEP_SUMMARY
           echo "| Version | ${{ steps.ver.outputs.V }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Base | Ubuntu 22.04 Jammy |" >> $GITHUB_STEP_SUMMARY
           echo "| Taille | ${{ steps.stats.outputs.SIZE }} |" >> $GITHUB_STEP_SUMMARY
           echo "| SHA256 | \`${{ steps.stats.outputs.SHA256 }}\` |" >> $GITHUB_STEP_SUMMARY
