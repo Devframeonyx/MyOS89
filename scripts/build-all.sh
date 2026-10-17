@@ -54,7 +54,6 @@ lb config \
   --distribution jammy \
   --debian-installer none \
   --binary-images iso-hybrid \
-  --bootloaders "syslinux,grub-efi" \
   --memtest none \
   --apt-recommends false \
   --archive-areas "main restricted universe multiverse" \
