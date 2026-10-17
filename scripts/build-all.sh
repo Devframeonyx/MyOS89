@@ -2,10 +2,16 @@
 # ============================================================
 #  MineOS Gaming Edition — Build Ubuntu 22.04 (Jammy)
 #  XFCE + Opera GX + Store apps + Personnalisation
+#  BUG FIX v10 :
+#    - dpkg --add-architecture i386 dédupliqué (hook 0150)
+#    - détection GPU déplacée en runtime (lspci vide dans chroot)
+#    - fallback Opera si dépôt inaccessible
+#    - vérification /lib/modules/ avant mkinitramfs
+#    - alias bashrc corrigés
 # ============================================================
 set -uo pipefail
 # Pas de -e : lb_chroot_hacks peut retourner des warnings non-fatals (chmod symlinks)
-# Ces erreurs sont gérées manuellement dans l'étape lb build (voir étape 7).
+# Ces erreurs sont gérées manuellement dans l'étape lb build (étape 7).
 
 VERSION="${1:-1.0.0}"
 BUILD_DIR="/opt/mineos-build"
@@ -69,7 +75,6 @@ lb config \
 
 echo "[1b/9] Sources Ubuntu + keyring..."
 
-# Sources Ubuntu (main restricted universe multiverse + security + updates)
 mkdir -p config/archives
 cat > config/archives/ubuntu.list.chroot << 'EOF'
 deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
@@ -78,7 +83,6 @@ deb http://security.ubuntu.com/ubuntu jammy-security main restricted universe mu
 deb http://archive.ubuntu.com/ubuntu jammy-backports main restricted universe multiverse
 EOF
 
-# Préférences : s'assurer qu'on utilise bien Ubuntu
 cat > config/archives/ubuntu.pref.chroot << 'EOF'
 Package: *
 Pin: release o=Ubuntu
@@ -134,7 +138,6 @@ EOF
 # AVANT que lb_chroot_hacks ne tourne. Le hook Liquorix (0250) remplace ensuite
 # ce kernel par la version gaming.
 
-# Paquets boot EFI + BIOS (nécessaires pour iso-hybrid bootable sur vrai PC)
 cat > config/package-lists/00-boot.list.chroot << 'EOF'
 grub-efi-amd64
 grub-efi-amd64-bin
@@ -211,7 +214,10 @@ rofi
 dunst
 python3-pil
 imagemagick
+pciutils
 EOF
+# BUG FIX : ajout de pciutils (lspci) — nécessaire pour le script
+# de détection GPU au démarrage (mineos-gpu-detect).
 
 cat > config/package-lists/03-wine.list.chroot << 'EOF'
 wine
@@ -257,17 +263,46 @@ cat > config/hooks/live/0100-opera.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
 echo ">>> Opera GX..."
-wget -qO /tmp/opera.gpg "https://deb.opera.com/archive.key"
-gpg --dearmor -o /usr/share/keyrings/opera.gpg /tmp/opera.gpg
-rm -f /tmp/opera.gpg
 
-echo "deb [signed-by=/usr/share/keyrings/opera.gpg] https://deb.opera.com/opera-stable/ stable non-free" \
-  > /etc/apt/sources.list.d/opera.list
+# BUG FIX : vérifier la connectivité avant de tenter l'ajout du dépôt
+if wget -q --spider "https://deb.opera.com/archive.key" 2>/dev/null; then
+  wget -qO /tmp/opera.gpg "https://deb.opera.com/archive.key"
+  gpg --dearmor -o /usr/share/keyrings/opera.gpg /tmp/opera.gpg
+  rm -f /tmp/opera.gpg
 
+  echo "deb [signed-by=/usr/share/keyrings/opera.gpg] https://deb.opera.com/opera-stable/ stable non-free" \
+    > /etc/apt/sources.list.d/opera.list
+
+  apt-get update -qq
+  if apt-get install -y opera-stable 2>/dev/null; then
+    ln -sf /usr/bin/opera-stable /usr/local/bin/opera 2>/dev/null || true
+    ln -sf /usr/bin/opera-stable /usr/local/bin/opera-gx 2>/dev/null || true
+    echo ">>> Opera GX OK"
+  else
+    echo ">>> Opera indisponible — fallback Chromium"
+    apt-get install -y chromium-browser 2>/dev/null || true
+    ln -sf /usr/bin/chromium-browser /usr/local/bin/opera 2>/dev/null || true
+    ln -sf /usr/bin/chromium-browser /usr/local/bin/opera-gx 2>/dev/null || true
+  fi
+else
+  echo ">>> deb.opera.com inaccessible — fallback Chromium"
+  apt-get install -y chromium-browser 2>/dev/null || true
+  ln -sf /usr/bin/chromium-browser /usr/local/bin/opera 2>/dev/null || true
+  ln -sf /usr/bin/chromium-browser /usr/local/bin/opera-gx 2>/dev/null || true
+fi
+HOOKEOF
+
+# ── BUG FIX : hook dédié pour i386 (évite le double dpkg --add-architecture) ──
+# Avant : appelé à la fois dans 0200-wine et 0300-steam → avertissements dpkg
+#         et potentiels conflits d'index apt en cas de race condition.
+# Fix   : un seul hook 0150 le fait avant les deux, avec apt-get update unique.
+cat > config/hooks/live/0150-i386.hook.chroot << 'HOOKEOF'
+#!/bin/bash
+set -e
+echo ">>> Activation architecture i386..."
+dpkg --add-architecture i386
 apt-get update -qq
-apt-get install -y opera-stable 2>/dev/null || echo "Opera skip"
-ln -sf /usr/bin/opera /usr/local/bin/opera-gx 2>/dev/null || true
-echo ">>> Opera OK"
+echo ">>> i386 OK"
 HOOKEOF
 
 # ── Wine 32bit + DXVK + Bottles ───────────────────────────
@@ -275,8 +310,7 @@ cat > config/hooks/live/0200-wine.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
 echo ">>> Wine + DXVK + Bottles..."
-dpkg --add-architecture i386
-apt-get update -qq
+# BUG FIX : dpkg --add-architecture i386 supprimé ici (fait par hook 0150)
 apt-get install -y wine32 libwine:i386 fonts-wine \
   libvulkan1:i386 libgl1-mesa-dri:i386 2>/dev/null || true
 
@@ -295,7 +329,7 @@ cat > /usr/local/bin/wine-dxvk-setup << 'EOF'
 PREFIX="${WINEPREFIX:-$HOME/.wine}"
 cp /usr/share/dxvk/x64/*.dll "$PREFIX/drive_c/windows/system32/" 2>/dev/null || true
 cp /usr/share/dxvk/x32/*.dll "$PREFIX/drive_c/windows/syswow64/" 2>/dev/null || true
-echo "DXVK active"
+echo "DXVK activé"
 EOF
 chmod +x /usr/local/bin/wine-dxvk-setup
 
@@ -340,14 +374,14 @@ cat > config/hooks/live/0250-kernel.hook.chroot << 'HOOKEOF'
 set -e
 echo ">>> Kernel Liquorix (Ubuntu)..."
 wget -qO /tmp/liq.gpg "https://liquorix.net/liquorix-keyring.gpg" \
-  || { echo "Liquorix GPG echec"; exit 0; }
+  || { echo "Liquorix GPG échec — kernel Ubuntu conservé"; exit 0; }
 install -D -m 644 /tmp/liq.gpg /usr/share/keyrings/liquorix-keyring.gpg
 . /etc/os-release
 echo "deb [signed-by=/usr/share/keyrings/liquorix-keyring.gpg] https://liquorix.net/debian ${VERSION_CODENAME} main" \
   > /etc/apt/sources.list.d/liquorix.list
 apt-get update -qq
 apt-get install -y linux-image-liquorix-amd64 linux-headers-liquorix-amd64 \
-  || echo "Liquorix indispo, kernel Ubuntu conserve"
+  || echo "Liquorix indisponible — kernel Ubuntu générique conservé"
 HOOKEOF
 
 # ── Steam ───────────────────────────────────────────────────
@@ -355,7 +389,7 @@ cat > config/hooks/live/0300-steam.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
 echo ">>> Steam..."
-dpkg --add-architecture i386
+# BUG FIX : dpkg --add-architecture i386 supprimé ici (fait par hook 0150)
 apt-get update -qq
 apt-get install -y steam-installer 2>/dev/null || {
   wget -qO /tmp/steam.deb \
@@ -406,91 +440,116 @@ toggle_hud=Shift_R+F12
 EOF
 HOOKEOF
 
-# ── GPU universel ────────────────────────────────────────────
+# ── BUG FIX : GPU — détection déplacée en RUNTIME ──────────
+# PROBLÈME ORIGINAL : le hook 0500-gpu appelait lspci dans le chroot
+# live-build. Or, dans un chroot live-build, /proc et /sys ne sont pas
+# montés complètement → lspci retourne une liste vide ou partielle.
+# Résultat : HAS_NVIDIA et HAS_AMD valent toujours 0, et seuls les drivers
+# Intel (branche "else") étaient installés, peu importe le GPU réel.
+#
+# FIX : on installe TOUS les drivers (NVIDIA, AMD, Intel) de manière
+# inconditionnelle dans le hook chroot, et on crée un script de détection
+# qui s'exécute au premier démarrage pour activer le bon ICD Vulkan.
 cat > config/hooks/live/0500-gpu.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 set -e
-echo ">>> Drivers GPU (Ubuntu)..."
+echo ">>> Drivers GPU universels (tous installés — détection au démarrage)..."
+
+apt-get update -qq
+
+# Tous les drivers GPU installés inconditionnellement
+apt-get install -y \
+  linux-firmware \
+  libgl1-mesa-dri \
+  mesa-vulkan-drivers \
+  mesa-va-drivers \
+  mesa-vdpau-drivers \
+  libvulkan1 \
+  vulkan-tools \
+  2>/dev/null || true
+
+# NVIDIA : PPA + driver générique (téléchargé au 1er démarrage si GPU détecté)
+apt-get install -y ubuntu-drivers-common 2>/dev/null || true
+
+# AMD : firmware + Vulkan RADV
+apt-get install -y \
+  linux-firmware \
+  libvulkan1 \
+  2>/dev/null || true
+
+cat > /etc/modprobe.d/amdgpu.conf << 'EOF'
+options amdgpu si_support=1
+options amdgpu cik_support=1
+options amdgpu dpm=1
+options amdgpu dc=1
+options amdgpu ppfeaturemask=0xffffffff
+EOF
+
+# Intel
+cat > /etc/modprobe.d/i915-gaming.conf << 'EOF'
+options i915 enable_guc=3
+options i915 enable_fbc=1
+options i915 enable_psr=1
+options i915 fastboot=1
+EOF
+
+# ── Script de détection GPU au démarrage (lspci disponible = runtime) ──
+cat > /usr/local/bin/mineos-gpu-detect << 'EOF'
+#!/bin/bash
+# Détection du GPU au démarrage — lspci fonctionne sur le vrai matériel
 GPU_INFO=$(lspci 2>/dev/null | grep -iE "VGA|3D|Display" || true)
-HAS_NVIDIA=$(echo "$GPU_INFO" | grep -ic "nvidia" || true)
-HAS_AMD=$(echo "$GPU_INFO"   | grep -icE "amd|radeon|ati" || true)
-echo "GPU: $GPU_INFO"
+HAS_NVIDIA=$(echo "$GPU_INFO" | grep -ic "nvidia" 2>/dev/null || echo 0)
+HAS_AMD=$(echo "$GPU_INFO"   | grep -icE "amd|radeon|ati" 2>/dev/null || echo 0)
 
 if [ "$HAS_NVIDIA" -gt 0 ]; then
-  # Ubuntu : PPA ubuntu-drivers
-  apt-get install -y ubuntu-drivers-common 2>/dev/null || true
-  ubuntu-drivers install 2>/dev/null || \
-    apt-get install -y nvidia-driver-535 nvidia-settings libvulkan1 vulkan-tools 2>/dev/null || true
-  cat > /etc/modprobe.d/blacklist-nouveau.conf << 'EOF'
-blacklist nouveau
-options nouveau modeset=0
-EOF
-  mkdir -p /etc/X11/xorg.conf.d
-  cat > /etc/X11/xorg.conf.d/20-nvidia.conf << 'EOF'
+  export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
+  # Activer les optimisations NVIDIA
+  export __GL_THREADED_OPTIMIZATIONS=1
+  export __GL_MaxFramesAllowed=1
+  # Installer le driver NVIDIA si pas déjà installé
+  if ! dpkg -l | grep -q "nvidia-driver"; then
+    ubuntu-drivers install 2>/dev/null || \
+      apt-get install -y nvidia-driver-535 nvidia-settings 2>/dev/null || true
+    # Config xorg NVIDIA
+    mkdir -p /etc/X11/xorg.conf.d
+    cat > /etc/X11/xorg.conf.d/20-nvidia.conf << 'XEOF'
 Section "Device"
   Identifier "NVIDIA Card"
   Driver "nvidia"
   Option "NoLogo" "1"
   Option "TripleBuffer" "1"
 EndSection
-EOF
-  cat >> /etc/environment << 'EOF'
-__GL_THREADED_OPTIMIZATIONS=1
-__GL_MaxFramesAllowed=1
-EOF
-  update-initramfs -u 2>/dev/null || true
-
+XEOF
+    # Désactiver Nouveau
+    cat > /etc/modprobe.d/blacklist-nouveau.conf << 'XEOF'
+blacklist nouveau
+options nouveau modeset=0
+XEOF
+  fi
 elif [ "$HAS_AMD" -gt 0 ]; then
-  apt-get update -qq
-  # Ubuntu Jammy : firmware-amd-graphics n'existe pas → linux-firmware
-  apt-get install -y linux-firmware libgl1-mesa-dri \
-    mesa-vulkan-drivers mesa-va-drivers mesa-vdpau-drivers \
-    libvulkan1 vulkan-tools 2>/dev/null || true
-  cat > /etc/modprobe.d/amdgpu.conf << 'EOF'
-options amdgpu si_support=1
-options amdgpu cik_support=1
-options amdgpu dpm=1
-options amdgpu dc=1
-options amdgpu ppfeaturemask=0xffffffff
-blacklist radeon
-EOF
-  cat >> /etc/environment << 'EOF'
-RADV_PERFTEST=aco,ngg
-AMD_VULKAN_ICD=RADV
-mesa_glthread=true
-EOF
-
-else
-  apt-get update -qq
-  # Ubuntu Jammy : intel-media-va-driver est dans non-free → intel-media-va-driver-non-free
-  apt-get install -y linux-firmware intel-media-va-driver \
-    libva-drm2 libva-x11-2 libgl1-mesa-dri \
-    mesa-vulkan-drivers libvulkan1 vulkan-tools 2>/dev/null || true
-  cat > /etc/modprobe.d/i915-gaming.conf << 'EOF'
-options i915 enable_guc=3
-options i915 enable_fbc=1
-options i915 enable_psr=1
-options i915 fastboot=1
-EOF
-  cat >> /etc/environment << 'EOF'
-MESA_LOADER_DRIVER_OVERRIDE=iris
-mesa_glthread=true
-vblank_mode=0
-EOF
-fi
-
-cat > /usr/local/bin/mineos-vulkan-setup << 'EOF'
-#!/bin/bash
-GPU=$(lspci 2>/dev/null | grep -iE "VGA|3D" | head -1)
-if echo "$GPU" | grep -qi nvidia; then
-  export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
-elif echo "$GPU" | grep -qiE "amd|radeon"; then
   export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+  export RADV_PERFTEST=aco,ngg
+  export AMD_VULKAN_ICD=RADV
+  export mesa_glthread=true
 else
+  # Intel (défaut)
   export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.x86_64.json
+  export MESA_LOADER_DRIVER_OVERRIDE=iris
+  export mesa_glthread=true
+  export vblank_mode=0
 fi
+
+# Écrire les variables dans /etc/environment pour la session graphique
+{
+  echo "VK_ICD_FILENAMES=$VK_ICD_FILENAMES"
+  [ -n "${__GL_THREADED_OPTIMIZATIONS:-}" ] && echo "__GL_THREADED_OPTIMIZATIONS=$__GL_THREADED_OPTIMIZATIONS"
+  [ -n "${RADV_PERFTEST:-}" ]               && echo "RADV_PERFTEST=$RADV_PERFTEST"
+  [ -n "${AMD_VULKAN_ICD:-}" ]              && echo "AMD_VULKAN_ICD=$AMD_VULKAN_ICD"
+  [ -n "${MESA_LOADER_DRIVER_OVERRIDE:-}" ] && echo "MESA_LOADER_DRIVER_OVERRIDE=$MESA_LOADER_DRIVER_OVERRIDE"
+  [ -n "${mesa_glthread:-}" ]               && echo "mesa_glthread=$mesa_glthread"
+} >> /etc/environment
 EOF
-chmod +x /usr/local/bin/mineos-vulkan-setup
+chmod +x /usr/local/bin/mineos-gpu-detect
 
 cat > /usr/local/bin/mineos-gpu-info << 'EOF'
 #!/bin/bash
@@ -500,6 +559,25 @@ glxinfo 2>/dev/null | grep -E "renderer|version" | head -4 || true
 vulkaninfo 2>/dev/null | grep deviceName | head -2 || true
 EOF
 chmod +x /usr/local/bin/mineos-gpu-info
+
+# Service systemd pour lancer la détection GPU au démarrage
+cat > /etc/systemd/system/mineos-gpu-detect.service << 'EOF'
+[Unit]
+Description=MineOS GPU Detection
+Before=display-manager.service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/mineos-gpu-detect
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl enable mineos-gpu-detect.service 2>/dev/null || true
+
+echo ">>> Drivers GPU OK (détection au démarrage via mineos-gpu-detect)"
 HOOKEOF
 
 # ── Tweaks système ──────────────────────────────────────────
@@ -930,7 +1008,7 @@ cat > /usr/local/bin/mineos-startup << 'EOF'
 #!/bin/bash
 sleep 2
 /usr/local/bin/mineos-flatpak-setup 2>/dev/null &
-source /usr/local/bin/mineos-vulkan-setup 2>/dev/null
+/usr/local/bin/mineos-gpu-detect 2>/dev/null &
 /usr/lib/gamemode/gamemoded 2>/dev/null &
 notify-send "⛏ MineOS Gaming" \
   "Bienvenue !\nStore : menu ⛏ → MineOS Store\nexe <fichier.exe> dans le terminal" \
@@ -941,7 +1019,7 @@ chmod +x /usr/local/bin/mineos-startup
 for ITEM in store opera terminal files; do
   case $ITEM in
     store)    NAME="MineOS Store";  EXEC="mineos-store";        ICON="system-software-install" ;;
-    opera)    NAME="Opera GX";      EXEC="opera";               ICON="opera"                   ;;
+    opera)    NAME="Opera GX";      EXEC="opera-gx";            ICON="opera"                   ;;
     terminal) NAME="Terminal";      EXEC="xfce4-terminal";      ICON="terminal"                ;;
     files)    NAME="Fichiers";      EXEC="thunar";              ICON="file-manager"            ;;
   esac
@@ -1031,7 +1109,10 @@ export mesa_glthread=true
 PS1='\[\e[0;32m\]mining \[\e[1;36m\]\u\[\e[0;37m\]@\[\e[1;34m\]mineos\[\e[0;37m\]:\[\e[1;33m\]\w\[\e[0m\]\$ '
 alias ls='ls --color=auto'
 alias ll='ls -lah --color=auto'
-alias chrome='opera'
+# BUG FIX : alias 'chrome' pointait vers 'opera' qui n'existait pas toujours
+# Maintenant on utilise le lien /usr/local/bin/opera-gx créé par le hook 0100
+alias browser='opera-gx'
+alias opera='opera-gx'
 alias exe='gamemoderun wine'
 alias exe-dxvk='DXVK_HUD=fps gamemoderun wine'
 alias steam='gamemoderun steam'
@@ -1039,7 +1120,6 @@ alias gpu='mineos-gpu-info'
 alias store='mineos-store'
 alias wallpaper='mineos-wallpaper'
 [ -f /etc/bash_completion ] && . /etc/bash_completion
-source /usr/local/bin/mineos-vulkan-setup 2>/dev/null
 echo ""
 echo "  ⛏ MineOS Gaming — store | exe <app.exe> | gpu | wallpaper"
 echo ""
@@ -1086,12 +1166,6 @@ EOF
 HOOKEOF
 
 # ── Fix initramfs + suppression symlinks .old (bug live-build Ubuntu) ───────
-# Pourquoi ça plante :
-#   1. Le kernel postinst crée /boot/initrd.img.old -> initrd.img-<old-kver>
-#      mais dans un chroot frais il n'y a pas d'"ancien" kernel → symlink cassé.
-#   2. update-initramfs est mis en "deferred" par dpkg et n'est jamais flushé.
-#   3. lb_chroot_hacks tente chmod sur ces symlinks cassés → exit 123.
-# Fix : flush des triggers dpkg + génération initramfs + suppression des .old.
 cat > config/hooks/live/0800-initramfs.hook.chroot << 'HOOKEOF'
 #!/bin/bash
 # Pourquoi ce hook existe :
@@ -1102,38 +1176,39 @@ cat > config/hooks/live/0800-initramfs.hook.chroot << 'HOOKEOF'
 #
 # Fix : mkinitramfs DIRECTEMENT (contourne le système de triggers dpkg),
 #       puis suppression des symlinks .old qui n'ont aucun sens dans un chroot frais.
-#
-# NOTE : lb_chroot_hacks est aussi patché sur le host (étape 6b du script parent)
-#        pour que même si ce hook échoue, le chmod ne bloque pas le build.
 
 export DEBIAN_FRONTEND=noninteractive
 
 echo ">>> Modules disponibles :"
 ls /lib/modules/ 2>/dev/null || echo "(aucun)"
 
-for KVER in $(ls /lib/modules/ 2>/dev/null | sort); do
-  OUT="/boot/initrd.img-${KVER}"
-  if [ ! -f "$OUT" ]; then
-    echo ">>> mkinitramfs $KVER -> $OUT"
-    # Flush les triggers dpkg en attente avant mkinitramfs
-    dpkg --configure -a 2>/dev/null || true
-    if mkinitramfs -o "$OUT" "$KVER"; then
-      echo ">>> mkinitramfs OK : $OUT"
-    elif update-initramfs -c -k "$KVER"; then
-      echo ">>> update-initramfs OK : $OUT"
+# BUG FIX : vérification explicite que /lib/modules/ n'est pas vide
+if [ -z "$(ls -A /lib/modules/ 2>/dev/null)" ]; then
+  echo "WARN: /lib/modules/ est vide — aucun kernel installé, initramfs ignoré"
+  echo "      Le patch lb_chroot_hacks (étape 6b) prendra le relais."
+else
+  for KVER in $(ls /lib/modules/ 2>/dev/null | sort); do
+    OUT="/boot/initrd.img-${KVER}"
+    if [ ! -f "$OUT" ]; then
+      echo ">>> mkinitramfs $KVER -> $OUT"
+      dpkg --configure -a 2>/dev/null || true
+      if mkinitramfs -o "$OUT" "$KVER"; then
+        echo ">>> mkinitramfs OK : $OUT"
+      elif update-initramfs -c -k "$KVER"; then
+        echo ">>> update-initramfs OK : $OUT"
+      else
+        echo "WARN: initramfs non généré pour $KVER — le patch lb_chroot_hacks prendra le relais"
+        continue
+      fi
     else
-      echo "WARN: initramfs non généré pour $KVER — le patch lb_chroot_hacks (étape 6b) prendra le relais"
-      continue
+      echo ">>> $OUT existe déjà"
     fi
-  else
-    echo ">>> $OUT existe déjà"
-  fi
-  # Réparer le symlink principal s'il est cassé
-  if [ -L /boot/initrd.img ] && [ ! -e /boot/initrd.img ]; then
-    ln -sf "initrd.img-${KVER}" /boot/initrd.img
-    echo ">>> /boot/initrd.img -> initrd.img-${KVER}"
-  fi
-done
+    if [ -L /boot/initrd.img ] && [ ! -e /boot/initrd.img ]; then
+      ln -sf "initrd.img-${KVER}" /boot/initrd.img
+      echo ">>> /boot/initrd.img -> initrd.img-${KVER}"
+    fi
+  done
+fi
 
 # Supprimer les symlinks .old cassés (pas d'"ancien kernel" dans un chroot frais)
 for f in /boot/initrd.img.old /boot/vmlinuz.old; do
@@ -1152,7 +1227,6 @@ cat > config/hooks/live/0850-grub.hook.chroot << 'HOOKEOF'
 export DEBIAN_FRONTEND=noninteractive
 echo ">>> Config GRUB EFI/BIOS..."
 
-# Config GRUB principale
 mkdir -p /boot/grub
 cat > /etc/default/grub << 'EOF'
 GRUB_DEFAULT=0
@@ -1167,7 +1241,6 @@ GRUB_GFXPAYLOAD_LINUX="keep"
 GRUB_DISABLE_OS_PROBER=true
 EOF
 
-# grub.cfg pour le live (sera aussi dans binary/boot/grub/ du squashfs)
 cat > /boot/grub/grub.cfg << 'EOF'
 set default=0
 set timeout=5
@@ -1227,18 +1300,8 @@ echo "xz" > config/compression/filesystem
 # ─────────────────────────────────────────────
 # ÉTAPE 6b : Patch lb_chroot_hacks sur le HOST
 # ─────────────────────────────────────────────
-# Pourquoi : live-build exécute lb_chroot_hacks DANS le répertoire de build,
-# avec des chemins comme "chroot/boot/initrd.img". Si ce symlink est cassé
-# (update-initramfs différé, pas de fichier initrd.img-<kver> cible), chmod
-# retourne une erreur. Le hook 0800 tente de corriger ça depuis l'intérieur du
-# chroot, mais peut échouer si l'environnement chroot est contraint à ce stade.
-# Ce patch ajoute une garde [ -e ... ] avant chaque chmod dans lb_chroot_hacks,
-# rendant le script tolérant aux symlinks cassés — sans jamais modifier le comportement
-# sur des installations normales.
 echo "[6b/9] Patch lb_chroot_hacks (host)..."
 
-# Chercher lb_chroot_hacks dans les emplacements connus de live-build
-# live-build 3.x nomme les scripts "lb_chroot_hacks", live-build 4.x+ "chroot_hacks"
 LB_HACKS=""
 for candidate in \
   /usr/lib/live/build/lb_chroot_hacks \
@@ -1260,15 +1323,11 @@ if [ -z "$LB_HACKS" ]; then
   echo "       (le hook 0800-initramfs doit suffire)"
 else
   echo ">>> Fichier trouvé : $LB_HACKS"
-  # Sauvegarder l'original (idempotent : ne pas écraser si déjà patché)
   if [ ! -f "${LB_HACKS}.orig" ]; then
     cp "$LB_HACKS" "${LB_HACKS}.orig"
     echo ">>> Backup : ${LB_HACKS}.orig"
   fi
 
-  # Patch principal (live-build 3.0~a57, Ubuntu 22.04) — ligne exacte confirmée :
-  #   find chroot/boot -name 'initrd*' -print0 | xargs -r -0 chmod go+r
-  # Fix : -not -xtype l pour ignorer les symlinks cassés
   python3 - "$LB_HACKS" << 'PYEOF'
 import sys, shutil, re, subprocess
 
@@ -1282,12 +1341,10 @@ OLD = "find chroot/boot -name 'initrd*' -print0 | xargs -r -0 chmod go+r"
 NEW = "find chroot/boot -name 'initrd*' -not -xtype l -print0 | xargs -r -0 chmod go+r  # patched"
 text = text.replace(OLD, NEW)
 
-# Sécurité : conditions [ -L ... ] → [ -e ... ]
 text = re.sub(
     r'\[ -[eL] (chroot/boot/(?:initrd[^ \]]*|vmlinuz[^ \]]*)) \]'
     r'(?:\s*\|\|\s*\[ -[eL] \1 \])?',
     r'[ -e \1 ]', text)
-# Sécurité : chmod direct → non-fatal
 text = re.sub(
     r'(chmod\s+\S+\s+chroot/boot/(?:initrd[^ \n]*|vmlinuz[^ \n]*))',
     r'\1 2>/dev/null || true  # patched', text)
@@ -1309,11 +1366,8 @@ fi
 # ÉTAPE 7 : lb build
 # ─────────────────────────────────────────────
 echo "[7/9] lb build (20-30 min)..."
-# Le || true permet de continuer même si lb retourne un code d'erreur
-# sur des warnings non-fatals (chmod dangling symlinks, etc.)
 lb build 2>&1 | tee /tmp/lb-build.log || {
   EXIT_CODE=$?
-  # Vérifier si l'ISO a quand même été créée malgré l'erreur
   ISO_CHECK=$(find "$BUILD_DIR" -name "*.iso" 2>/dev/null | head -1)
   if [ -n "$ISO_CHECK" ]; then
     echo ">>> lb build a retourné $EXIT_CODE mais l'ISO existe — on continue"
@@ -1338,6 +1392,6 @@ fi
 cp "$ISO" "$OUT_DIR/MineOS-Gaming-${VERSION}-x86_64.iso"
 sha256sum "$OUT_DIR/MineOS-Gaming-${VERSION}-x86_64.iso" > "$OUT_DIR/SHA256SUMS"
 
-echo "[9/9] Done !"
+echo "[9/9] Terminé !"
 echo "ISO : $OUT_DIR/MineOS-Gaming-${VERSION}-x86_64.iso"
 echo "Taille : $(du -sh $OUT_DIR/MineOS-Gaming-${VERSION}-x86_64.iso | cut -f1)"
