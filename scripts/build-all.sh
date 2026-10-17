@@ -73,16 +73,12 @@ lb config \
   --iso-volume "MineOS-${VERSION}" \
   --bootappend-live "boot=live components quiet splash hostname=mineos username=user"
 
-echo "[1b/9] Sources Ubuntu + keyring..."
+echo "[1b/9] Préférences Ubuntu (sans doublon sources)..."
 
 mkdir -p config/archives
-cat > config/archives/ubuntu.list.chroot << 'EOF'
-deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
-deb http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu jammy-backports main restricted universe multiverse
-EOF
-
+# PAS de ubuntu.list.chroot ici — lb config génère déjà les bonnes sources
+# Un fichier en double causait "configured multiple times" → apt échoue
+# → kernel non installé → pas d'initrd → ERREUR FATALE lb build (code 1)
 cat > config/archives/ubuntu.pref.chroot << 'EOF'
 Package: *
 Pin: release o=Ubuntu
