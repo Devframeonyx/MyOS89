@@ -1061,29 +1061,29 @@ indicators=~host;~spacer;~clock;~spacer;~session;~power
 EOF
 HOOKEOF
 
-# ── Fix initramfs symlinks (bug live-build Ubuntu) ──────────
-# live-build tente un chmod sur initrd.img avant que l'initramfs soit généré
-# Ce hook le génère en avance pour éviter les dangling symlinks
+# ── Fix initramfs / flush triggers dpkg (bug live-build Ubuntu) ──────────
+# live-build tente un chmod sur initrd.img avant que l'initramfs soit généré.
+# Cause : update-initramfs est "deferred" (trigger activé mais jamais flushé).
+# Fix : flush des triggers dpkg PUIS génération forcée pour tous les kernels.
 cat > config/hooks/live/0800-initramfs.hook.chroot << 'HOOKEOF'
 #!/bin/bash
-# Force la génération de l'initramfs pour éviter les symlinks cassés
-# lors de l'étape lb_chroot_hacks de live-build
+# Flush des triggers dpkg en attente (dont update-initramfs)
 export DEBIAN_FRONTEND=noninteractive
-# Reconstruire l'initramfs pour le kernel installé
-KVER=$(ls /lib/modules/ 2>/dev/null | tail -1)
-if [ -n "$KVER" ]; then
-  echo ">>> Génération initramfs pour $KVER..."
-  update-initramfs -u -k "$KVER" 2>/dev/null || \
-  update-initramfs -c -k "$KVER" 2>/dev/null || \
-  echo "initramfs: fallback, continue"
-fi
-# S'assurer que les symlinks /boot/initrd.img et vmlinuz existent et ne sont pas cassés
-for f in /boot/initrd.img /boot/initrd.img.old /boot/vmlinuz /boot/vmlinuz.old; do
-  if [ -L "$f" ] && [ ! -e "$f" ]; then
-    echo ">>> Correction symlink cassé : $f"
-    rm -f "$f"
+echo ">>> Flush triggers dpkg..."
+dpkg --configure -a 2>/dev/null || true
+
+# Générer l'initramfs pour TOUS les kernels présents
+echo ">>> Génération initramfs (all)..."
+update-initramfs -u -k all 2>/dev/null || true
+
+# Fallback : créer un initramfs manquant kernel par kernel
+for KVER in $(ls /lib/modules/ 2>/dev/null); do
+  if [ ! -f "/boot/initrd.img-${KVER}" ]; then
+    echo ">>> Création initramfs pour $KVER..."
+    update-initramfs -c -k "$KVER" 2>/dev/null || true
   fi
 done
+
 echo ">>> Initramfs OK"
 HOOKEOF
 
