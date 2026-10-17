@@ -48,13 +48,19 @@ jobs:
           # Fix : remplacer les conditions [ -L ... ] par [ -e ... ] dans le script,
           # et ajouter || true sur les chmod directs, pour ignorer les symlinks cassés.
 
-          # Localiser le script
-          HACKS=$(find /usr/lib/live /usr/share/live -name "chroot_hacks" 2>/dev/null | head -1)
+          # Localiser le script — live-build 3.x : "lb_chroot_hacks", 4.x+ : "chroot_hacks"
+          HACKS=$(find /usr/lib/live /usr/share/live -name "lb_chroot_hacks" -o -name "chroot_hacks" 2>/dev/null | head -1)
+          if [ -z "$HACKS" ]; then
+            # Dernier recours : chercher dans tout /usr/lib et /usr/share
+            HACKS=$(find /usr/lib /usr/share -name "lb_chroot_hacks" -o -name "chroot_hacks" 2>/dev/null | head -1)
+          fi
           if [ -z "$HACKS" ]; then
             echo "::warning::lb_chroot_hacks introuvable — patch ignoré"
+            # Lister ce qui existe dans live/build pour debug
+            find /usr/lib/live /usr/share/live -type f 2>/dev/null | head -20 || true
             exit 0
           fi
-          echo "Fichier : $HACKS"
+          echo "Fichier trouvé : $HACKS"
 
           # Afficher les lignes concernant initrd/vmlinuz AVANT patch (pour debug)
           echo "--- Avant patch ---"
@@ -63,8 +69,11 @@ jobs:
           sudo python3 << 'PYEOF'
           import re, shutil, subprocess, sys, os
 
+          # Chercher lb_chroot_hacks (live-build 3.x) ET chroot_hacks (live-build 4.x+)
           r = subprocess.run(
-              ['find', '/usr/lib/live', '/usr/share/live', '-name', 'chroot_hacks'],
+              ['find', '/usr/lib/live', '/usr/share/live',
+               '/usr/lib', '/usr/share',
+               '(', '-name', 'lb_chroot_hacks', '-o', '-name', 'chroot_hacks', ')'],
               capture_output=True, text=True)
           path = next((p for p in r.stdout.strip().split('\n') if p and os.path.isfile(p)), None)
           if not path:
